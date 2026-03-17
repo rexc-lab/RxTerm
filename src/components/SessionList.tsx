@@ -35,26 +35,39 @@ export default function SessionList({
 
   return (
     <div className="session-list">
-      {sessions.map((s) => (
-        <div
-          key={s.id}
-          className={`host-item ${connectedSessionIds.has(s.id) ? "connected" : ""}`}
-          onDoubleClick={() => onConnect(s)}
-          title={`${s.username}@${s.host}:${s.port} — Double-click to connect`}
-        >
-          <div className="host-item-info">
-            <span className="host-item-label">{s.label}</span>
-            <span className="host-item-detail">
-              {s.username}@{s.host}:{s.port}
-            </span>
+      {sessions.map((s) => {
+        const proto = s.protocol ?? "ssh";
+        const protoBadge = proto === "vnc" ? "VNC" : "SSH";
+        return (
+          <div
+            key={s.id}
+            className={`host-item ${connectedSessionIds.has(s.id) ? "connected" : ""}`}
+            onDoubleClick={() => onConnect(s)}
+            title={
+              proto === "vnc"
+                ? `${s.host}:${s.port} (VNC) — Double-click to connect`
+                : `${s.username}@${s.host}:${s.port} — Double-click to connect`
+            }
+          >
+            <div className="host-item-info">
+              <span className="host-item-label">
+                <span className={`protocol-badge protocol-${proto}`}>{protoBadge}</span>
+                {s.label}
+              </span>
+              <span className="host-item-detail">
+                {proto === "vnc"
+                  ? `${s.host}:${s.port}`
+                  : `${s.username}@${s.host}:${s.port}`}
+              </span>
+            </div>
+            <div className="host-item-actions">
+              <button onClick={() => onConnect(s)} title="Connect">&#x25B6;</button>
+              <button onClick={() => onEdit(s)} title="Edit">&#x270E;</button>
+              <button className="btn-delete" onClick={() => onDelete(s.id)} title="Delete">&#x2715;</button>
+            </div>
           </div>
-          <div className="host-item-actions">
-            <button onClick={() => onConnect(s)} title="Connect">&#x25B6;</button>
-            <button onClick={() => onEdit(s)} title="Edit">&#x270E;</button>
-            <button className="btn-delete" onClick={() => onDelete(s.id)} title="Delete">&#x2715;</button>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

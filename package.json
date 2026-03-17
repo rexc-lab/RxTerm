@@ -29,6 +29,7 @@
     "vite": "^8.0.0"
   },
   "dependencies": {
+    "@novnc/novnc": "^1.6.0",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-updater": "^2",
     "@xterm/addon-fit": "^0.10.0",

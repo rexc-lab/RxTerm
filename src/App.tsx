@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import SshSessionForm from "./components/SshSessionForm";
 import SessionList from "./components/SessionList";
 import TerminalPane from "./components/TerminalPane";
+import VncPane from "./components/VncPane";
 import TerminalTabs from "./components/TerminalTabs";
 import HostKeyDialog from "./components/HostKeyDialog";
 import type {
@@ -20,6 +21,8 @@ import {
   sshConnect,
   sshAcceptHostKey,
   sshDisconnect,
+  vncConnect,
+  vncDisconnect,
 } from "./api";
 
 type View = "list" | "form";
@@ -176,9 +179,35 @@ export default function App() {
     }
   };
 
-  /** Attempt to connect to an SSH session. */
+  /** Attempt to connect to a session (SSH or VNC). */
   const handleConnect = useCallback(
     async (session: SshSession, overridePassword?: string) => {
+      const proto = session.protocol ?? "ssh";
+
+      if (proto === "vnc") {
+        // VNC connection flow
+        try {
+          setStatus({ type: "success", text: `Connecting to ${session.label}…` });
+          const result = await vncConnect(session.id, overridePassword ?? session.password);
+
+          const conn: Connection = {
+            id: result.connection_id,
+            sessionId: session.id,
+            label: session.label,
+            protocol: "vnc",
+            wsPort: result.ws_port,
+            vncPassword: overridePassword ?? session.password,
+          };
+          setConnections((prev) => [...prev, conn]);
+          setActiveConnectionId(result.connection_id);
+          setStatus({ type: "success", text: `Connected to ${session.label}` });
+        } catch (err: unknown) {
+          setStatus({ type: "error", text: String(err) });
+        }
+        return;
+      }
+
+      // SSH connection flow
       try {
         const pw =
           overridePassword ?? session.password ?? undefined;
@@ -208,6 +237,7 @@ export default function App() {
           id: result.connection_id,
           sessionId: session.id,
           label: session.label,
+          protocol: "ssh",
         };
         setConnections((prev) => [...prev, conn]);
         setActiveConnectionId(result.connection_id);
@@ -254,8 +284,14 @@ export default function App() {
 
   /** Disconnect a connection and remove its tab. */
   const handleDisconnect = useCallback(async (connectionId: string) => {
+    // Determine connection type to call the right disconnect API
+    const conn = connections.find((c) => c.id === connectionId);
     try {
-      await sshDisconnect(connectionId);
+      if (conn?.protocol === "vnc") {
+        await vncDisconnect(connectionId);
+      } else {
+        await sshDisconnect(connectionId);
+      }
     } catch {
       // Already disconnected
     }
@@ -269,7 +305,7 @@ export default function App() {
       });
       return next;
     });
-  }, []);
+  }, [connections]);
 
   /** Called when a terminal reports the connection was closed remotely. */
   const handleRemoteDisconnect = useCallback((connectionId: string) => {
@@ -396,10 +432,19 @@ export default function App() {
                     display: conn.id === activeConnectionId ? "block" : "none",
                   }}
                 >
-                  <TerminalPane
-                    connectionId={conn.id}
-                    onDisconnected={() => handleRemoteDisconnect(conn.id)}
-                  />
+                  {conn.protocol === "vnc" && conn.wsPort ? (
+                    <VncPane
+                      connectionId={conn.id}
+                      wsPort={conn.wsPort}
+                      password={conn.vncPassword}
+                      onDisconnected={() => handleRemoteDisconnect(conn.id)}
+                    />
+                  ) : (
+                    <TerminalPane
+                      connectionId={conn.id}
+                      onDisconnected={() => handleRemoteDisconnect(conn.id)}
+                    />
+                  )}
                 </div>
               ))}
             </div>

@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use tauri::{AppHandle, State};
 
 use crate::known_hosts::{self, KnownHostsStore};
-use crate::session::SshSession;
+use crate::session::{Protocol, SshSession};
 use crate::ssh::SshConnectionManager;
+use crate::vnc::VncConnectionManager;
 
 /// Application-level errors surfaced to the frontend via Tauri commands.
 #[derive(Debug, thiserror::Error)]
@@ -311,6 +312,65 @@ pub async fn ssh_disconnect(
 ) -> Result<(), AppError> {
     manager
         .disconnect(&connection_id)
+        .await
+        .map_err(|e| AppError::Ssh(e.to_string()))
+}
+
+// ─── VNC connection commands ────────────────────────────────────────────────
+
+/// Response from a successful VNC connection attempt.
+#[derive(serde::Serialize)]
+pub struct VncConnectResult {
+    connection_id: String,
+    ws_port: u16,
+}
+
+/// Start a VNC WebSocket proxy for the session specified by `session_id`.
+///
+/// Returns a `connection_id` and the local WebSocket port that the
+/// frontend noVNC client should connect to.
+#[tauri::command]
+pub async fn vnc_connect(
+    vnc_manager: State<'_, VncConnectionManager>,
+    session_id: String,
+    password: Option<String>,
+) -> Result<VncConnectResult, AppError> {
+    let sessions = get_sessions().await?;
+    let session = sessions
+        .iter()
+        .find(|s| s.id == session_id)
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?
+        .clone();
+
+    if session.protocol != Protocol::Vnc {
+        return Err(AppError::Ssh("Session is not a VNC session".to_string()));
+    }
+
+    let connection_id = uuid::Uuid::new_v4().to_string();
+
+    // If a password was provided (or stored), noVNC will handle sending
+    // it during the RFB handshake — we just need to start the proxy.
+    let _ = password; // VNC password is handled by the noVNC client
+
+    let ws_port = vnc_manager
+        .start_proxy(&connection_id, &session.host, session.port)
+        .await
+        .map_err(|e| AppError::Ssh(e.to_string()))?;
+
+    Ok(VncConnectResult {
+        connection_id,
+        ws_port,
+    })
+}
+
+/// Stop a VNC proxy connection and clean up resources.
+#[tauri::command]
+pub async fn vnc_disconnect(
+    vnc_manager: State<'_, VncConnectionManager>,
+    connection_id: String,
+) -> Result<(), AppError> {
+    vnc_manager
+        .stop_proxy(&connection_id)
         .await
         .map_err(|e| AppError::Ssh(e.to_string()))
 }

@@ -2,12 +2,15 @@ pub mod commands;
 pub mod known_hosts;
 pub mod session;
 pub mod ssh;
+pub mod vnc;
 
 use commands::{
     delete_session, export_sessions, get_sessions, import_sessions, save_session,
     ssh_accept_host_key, ssh_connect, ssh_disconnect, ssh_resize, ssh_send,
+    vnc_connect, vnc_disconnect,
 };
 use ssh::SshConnectionManager;
+use vnc::VncConnectionManager;
 
 /// Build and configure the Tauri application.
 ///
@@ -18,6 +21,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SshConnectionManager::new())
+        .manage(VncConnectionManager::new())
         .invoke_handler(tauri::generate_handler![
             get_sessions,
             save_session,
@@ -29,6 +33,8 @@ pub fn run() {
             ssh_send,
             ssh_resize,
             ssh_disconnect,
+            vnc_connect,
+            vnc_disconnect,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
