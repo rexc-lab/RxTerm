@@ -17,6 +17,8 @@ pub enum AppError {
     Serde(#[from] serde_json::Error),
     #[error("SSH error: {0}")]
     Ssh(String),
+    #[error("VNC error: {0}")]
+    Vnc(String),
     #[error("Not found: {0}")]
     NotFound(String),
     #[error("HOST_KEY_UNKNOWN:{}", serde_json::to_string(.0).unwrap_or_default())]
@@ -343,19 +345,20 @@ pub async fn vnc_connect(
         .clone();
 
     if session.protocol != Protocol::Vnc {
-        return Err(AppError::Ssh("Session is not a VNC session".to_string()));
+        return Err(AppError::Vnc("Session is not a VNC session".to_string()));
     }
 
     let connection_id = uuid::Uuid::new_v4().to_string();
 
-    // If a password was provided (or stored), noVNC will handle sending
-    // it during the RFB handshake — we just need to start the proxy.
-    let _ = password; // VNC password is handled by the noVNC client
+    // The VNC password will be sent by the noVNC client during the RFB
+    // handshake.  We accept the parameter here so the frontend can
+    // forward stored passwords in a future iteration.
+    let _ = password;
 
     let ws_port = vnc_manager
         .start_proxy(&connection_id, &session.host, session.port)
         .await
-        .map_err(|e| AppError::Ssh(e.to_string()))?;
+        .map_err(|e| AppError::Vnc(e.to_string()))?;
 
     Ok(VncConnectResult {
         connection_id,
@@ -372,5 +375,5 @@ pub async fn vnc_disconnect(
     vnc_manager
         .stop_proxy(&connection_id)
         .await
-        .map_err(|e| AppError::Ssh(e.to_string()))
+        .map_err(|e| AppError::Vnc(e.to_string()))
 }

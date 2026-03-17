@@ -8,6 +8,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
+/// Maximum number of concurrent VNC proxy connections allowed.
+const MAX_VNC_CONNECTIONS: usize = 16;
+
 /// A running VNC WebSocket proxy instance.
 #[allow(dead_code)]
 struct VncProxy {
@@ -43,6 +46,17 @@ impl VncConnectionManager {
         vnc_host: &str,
         vnc_port: u16,
     ) -> Result<u16, VncError> {
+        // Enforce connection limit to prevent resource exhaustion
+        {
+            let proxies = self.proxies.lock().await;
+            if proxies.len() >= MAX_VNC_CONNECTIONS {
+                return Err(VncError::TooManyConnections);
+            }
+        }
+
+        // Validate host format
+        validate_vnc_host(vnc_host)?;
+
         // Bind to a random port on localhost
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -56,7 +70,8 @@ impl VncConnectionManager {
         // Spawn the listener task — accepts one connection then proxies
         let listener_task = tokio::spawn(async move {
             if let Err(e) = run_proxy(listener, &vnc_addr, &cid).await {
-                log::error!("[VNC proxy {}] error: {}", cid, e);
+                log::error!("[VNC proxy {}] connection error", cid);
+                log::debug!("[VNC proxy {}] error details: {}", cid, e);
             }
         });
 
@@ -82,6 +97,33 @@ impl VncConnectionManager {
     }
 }
 
+/// Validate that the VNC host is a reasonable hostname or IP address.
+fn validate_vnc_host(host: &str) -> Result<(), VncError> {
+    if host.is_empty() || host.len() > 253 {
+        return Err(VncError::InvalidHost(
+            "Host must be between 1 and 253 characters".to_string(),
+        ));
+    }
+
+    // Try parsing as an IP address first
+    if host.parse::<std::net::IpAddr>().is_ok() {
+        return Ok(());
+    }
+
+    // Validate as a hostname: alphanumeric, dots, hyphens, and underscores
+    if !host
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+    {
+        return Err(VncError::InvalidHost(format!(
+            "Host contains invalid characters: {}",
+            host
+        )));
+    }
+
+    Ok(())
+}
+
 /// Run the WebSocket proxy: accept one WebSocket connection, connect to
 /// the VNC server, and bidirectionally forward data until either side closes.
 async fn run_proxy(
@@ -90,8 +132,16 @@ async fn run_proxy(
     _connection_id: &str,
 ) -> Result<(), VncError> {
     // Wait for the noVNC WebSocket client to connect
-    let (ws_stream, _peer_addr): (TcpStream, SocketAddr) =
+    let (ws_stream, peer_addr): (TcpStream, SocketAddr) =
         listener.accept().await.map_err(VncError::Io)?;
+
+    // Only accept connections from localhost
+    if !peer_addr.ip().is_loopback() {
+        return Err(VncError::Io(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "only localhost connections are allowed",
+        )));
+    }
 
     // Upgrade the TCP connection to a WebSocket connection
     let ws = tokio_tungstenite::accept_async(ws_stream)
@@ -159,6 +209,10 @@ pub enum VncError {
     Io(#[from] std::io::Error),
     #[error("WebSocket error: {0}")]
     WebSocket(String),
+    #[error("Invalid VNC host: {0}")]
+    InvalidHost(String),
+    #[error("Too many VNC connections (max {MAX_VNC_CONNECTIONS})")]
+    TooManyConnections,
 }
 
 impl serde::Serialize for VncError {

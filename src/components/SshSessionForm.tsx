@@ -65,7 +65,7 @@ export default function SshSessionForm({
       errs.port = "Port must be 1–65535";
 
     // SSH-specific validation
-    if (draft.protocol !== "vnc") {
+    if (draft.protocol === "ssh") {
       if (!draft.username.trim()) errs.username = "Username is required";
       if (
         draft.auth_method === "password" &&
@@ -89,7 +89,7 @@ export default function SshSessionForm({
     onSubmit(draft, initial?.id);
   };
 
-  const isSsh = draft.protocol !== "vnc";
+  const isSsh = draft.protocol === "ssh";
 
   return (
     <form onSubmit={handleSubmit}>
