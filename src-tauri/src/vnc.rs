@@ -193,11 +193,27 @@ async fn run_proxy(
         }
     });
 
+    // Create mutable handles so we can select on references and then abort/await the other task.
+    let mut vnc_to_ws = vnc_to_ws;
+    let mut ws_to_vnc = ws_to_vnc;
+
     // Wait for either direction to finish, then abort the other
     tokio::select! {
-        _ = vnc_to_ws => {}
-        _ = ws_to_vnc => {}
+        res = &mut vnc_to_ws => {
+            // VNC -> WS forwarding finished first; abort WS -> VNC.
+            ws_to_vnc.abort();
+            let _ = res;
+        }
+        res = &mut ws_to_vnc => {
+            // WS -> VNC forwarding finished first; abort VNC -> WS.
+            vnc_to_ws.abort();
+            let _ = res;
+        }
     }
+
+    // Ensure both tasks have terminated before returning.
+    let _ = vnc_to_ws.await;
+    let _ = ws_to_vnc.await;
 
     Ok(())
 }
