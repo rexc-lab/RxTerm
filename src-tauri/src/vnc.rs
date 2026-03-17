@@ -142,7 +142,7 @@ async fn run_proxy(
             .await
             .map_err(|_| VncError::Io(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
-                "timed out waiting for WebSocket client to connect",
+                "[VNC proxy] timed out waiting for WebSocket client to connect",
             )))?
             .map_err(VncError::Io)?;
 
@@ -160,7 +160,7 @@ async fn run_proxy(
         tokio_tungstenite::accept_async(ws_stream),
     )
         .await
-        .map_err(|_| VncError::WebSocket("WebSocket handshake timed out".to_string()))?
+        .map_err(|_| VncError::WebSocket("[VNC proxy] WebSocket handshake timed out".to_string()))?
         .map_err(|e| VncError::WebSocket(e.to_string()))?;
 
     // Connect to the actual VNC server
