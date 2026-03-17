@@ -58,3 +58,5 @@ release/
 *.swo
 Thumbs.db
 .DS_Store
+.tauri/rxterm.key
+.tauri/rxterm.key.pub
