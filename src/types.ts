@@ -28,6 +28,32 @@ export interface SshSession {
 /** Shape of the new-session form state (before an id is assigned). */
 export type SshSessionDraft = Omit<SshSession, "id">;
 
+/** An active SSH terminal connection. */
+export interface Connection {
+  /** Unique connection identifier (UUID). */
+  id: string;
+  /** The session ID this connection was created from. */
+  sessionId: string;
+  /** Human-readable label (copied from session). */
+  label: string;
+}
+
+/** Data returned when a host key is unknown and needs user approval. */
+export interface HostKeyInfo {
+  fingerprint: string;
+  key_data: string;
+  algorithm: string;
+}
+
+/** Prompt state tracked while awaiting user host-key decision. */
+export interface HostKeyPrompt {
+  host: string;
+  port: number;
+  info: HostKeyInfo;
+  sessionId: string;
+  password?: string;
+}
+
 /** Create an empty draft with sensible defaults. */
 export function emptySshDraft(): SshSessionDraft {
   return {

@@ -3,6 +3,8 @@ import type { SshSession } from "../types";
 interface SessionListProps {
   /** The list of saved sessions to display. */
   sessions: SshSession[];
+  /** Called when the user clicks "Connect" on a session. */
+  onConnect: (session: SshSession) => void;
   /** Called when the user clicks "Edit" on a session. */
   onEdit: (session: SshSession) => void;
   /** Called when the user clicks "Delete" on a session. */
@@ -17,6 +19,7 @@ interface SessionListProps {
  */
 export default function SessionList({
   sessions,
+  onConnect,
   onEdit,
   onDelete,
 }: SessionListProps) {
@@ -41,6 +44,9 @@ export default function SessionList({
             {s.notes && <span className="session-detail">{s.notes}</span>}
           </div>
           <div className="session-card-actions">
+            <button className="btn-connect" onClick={() => onConnect(s)}>
+              Connect
+            </button>
             <button className="btn-secondary" onClick={() => onEdit(s)}>
               Edit
             </button>

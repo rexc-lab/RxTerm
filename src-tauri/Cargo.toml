@@ -25,3 +25,9 @@ tokio = { version = "1", features = ["full"] }
 thiserror = "2"
 dirs = "6"
 uuid = { version = "1", features = ["v4"] }
+russh = "0.46"
+russh-keys = "0.46"
+ssh-key = { version = "0.6", features = ["ed25519", "rsa"] }
+base64 = "0.22"
+async-trait = "0.1"
+log = "0.4"
