@@ -1,3 +1,11 @@
+# ─── Node ───
+node_modules/
+dist/
+*.tsbuildinfo
+
+# ─── Rust / Cargo ───
+src-tauri/target/
+
 # Prerequisites
 *.d
 
@@ -39,3 +47,11 @@
 
 # debug information files
 *.dwo
+
+# ─── IDE / OS ───
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+.DS_Store
