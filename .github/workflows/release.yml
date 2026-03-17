@@ -6,9 +6,28 @@ on:
       - "v*"
   workflow_dispatch:
 
+env:
+  # Extract semver from tag (e.g. "v0.2.0" → "0.2.0").
+  # Falls back to "0.0.0-dev" for manual workflow_dispatch runs without a tag.
+  APP_VERSION: ""
+
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            rust-targets: ""
+            tauri-args: ""
+          - platform: macos-latest
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+            tauri-args: "--target universal-apple-darwin"
+          - platform: ubuntu-22.04
+            rust-targets: ""
+            tauri-args: ""
+
+    runs-on: ${{ matrix.platform }}
     permissions:
       contents: write
 
@@ -16,6 +35,49 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ── Compute version from tag ──────────────────────────────────
+      - name: Set version from tag
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"          # strip leading 'v'
+          else
+            VERSION="0.0.0-dev"
+          fi
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Using version: $VERSION"
+
+      # ── Version bump: sync tag version into config files ──────────
+      - name: Bump version in project files
+        shell: bash
+        run: |
+          # package.json
+          tmp=$(mktemp)
+          jq --arg v "$APP_VERSION" '.version = $v' package.json > "$tmp" && mv "$tmp" package.json
+
+          # src-tauri/tauri.conf.json
+          tmp=$(mktemp)
+          jq --arg v "$APP_VERSION" '.version = $v' src-tauri/tauri.conf.json > "$tmp" && mv "$tmp" src-tauri/tauri.conf.json
+
+          # src-tauri/Cargo.toml  (sed in-place, portable across macOS/Linux/Git-Bash)
+          sed -i.bak "s/^version = \".*\"/version = \"$APP_VERSION\"/" src-tauri/Cargo.toml
+          rm -f src-tauri/Cargo.toml.bak
+
+          echo "Versions set to $APP_VERSION"
+
+      # ── Linux system dependencies ─────────────────────────────────
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      # ── Toolchain ─────────────────────────────────────────────────
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
@@ -24,6 +86,8 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -33,13 +97,130 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # ── Windows code signing (disabled — uncomment when ready) ───
+      #
+      # To enable Windows Authenticode signing:
+      #   1. Export your code-signing certificate as a PFX file
+      #   2. Base64-encode it:  certutil -encode cert.pfx cert.b64
+      #   3. Store as GitHub Secrets:
+      #        WINDOWS_CERTIFICATE       — base64-encoded PFX content
+      #        WINDOWS_CERTIFICATE_PASSWORD — PFX passphrase
+      #
+      # - name: Import Windows signing certificate
+      #   if: matrix.platform == 'windows-latest'
+      #   env:
+      #     WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      #     WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      #   run: |
+      #     $pfxBytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+      #     $pfxPath  = Join-Path $env:RUNNER_TEMP "certificate.pfx"
+      #     [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+      #     Import-PfxCertificate -FilePath $pfxPath `
+      #       -CertStoreLocation Cert:\CurrentUser\My `
+      #       -Password (ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force)
+      #   shell: pwsh
+
+      # ── macOS code signing & notarization (disabled — uncomment when ready) ──
+      #
+      # To enable macOS signing + notarization:
+      #   1. Export your Developer ID Application certificate as a .p12
+      #   2. Base64-encode it:  base64 -i cert.p12 -o cert.b64
+      #   3. Store as GitHub Secrets:
+      #        APPLE_CERTIFICATE              — base64 .p12 content
+      #        APPLE_CERTIFICATE_PASSWORD     — .p12 passphrase
+      #        APPLE_SIGNING_IDENTITY         — e.g. "Developer ID Application: Your Name (TEAMID)"
+      #        APPLE_ID                       — Apple ID email
+      #        APPLE_PASSWORD                 — app-specific password
+      #        APPLE_TEAM_ID                  — 10-char team ID
+      #
+      # - name: Import macOS signing certificate
+      #   if: matrix.platform == 'macos-latest'
+      #   env:
+      #     APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      #     APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      #   run: |
+      #     CERT_PATH=$RUNNER_TEMP/certificate.p12
+      #     KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+      #     echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+      #     security create-keychain -p "" "$KEYCHAIN_PATH"
+      #     security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+      #     security unlock-keychain -p "" "$KEYCHAIN_PATH"
+      #     security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
+      #       -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+      #     security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+      # ── Build ─────────────────────────────────────────────────────
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Required for Tauri updater manifest signing.
+          # Generate a key pair:  npx tauri signer generate -w ~/.tauri/rxterm.key
+          # Store the private key as TAURI_SIGNING_PRIVATE_KEY in GitHub Secrets.
+          # Paste the public key into src-tauri/tauri.conf.json → plugins.updater.pubkey.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Uncomment for macOS notarization:
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "RxTerm ${{ github.ref_name }}"
           releaseBody: "See the assets below to download and install RxTerm."
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
+          includeUpdaterJson: true
+          updaterJsonKeepUniversal: true
+          args: ${{ matrix.tauri-args }}
+
+  # ── Checksums ───────────────────────────────────────────────────────
+  checksums:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          mkdir -p artifacts
+          # Wait briefly for release to be fully published
+          sleep 10
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --dir artifacts \
+            --pattern "*.msi" \
+            --pattern "*.exe" \
+            --pattern "*.dmg" \
+            --pattern "*.deb" \
+            --pattern "*.AppImage" \
+            --pattern "*.msi.zip" \
+            --pattern "*.nsis.zip" \
+            --pattern "*.app.tar.gz" \
+            --pattern "*.deb.tar.gz" \
+            --pattern "*.AppImage.tar.gz" \
+            --clobber || true
+
+      - name: Generate SHA-256 checksums
+        run: |
+          cd artifacts
+          if ls * 1>/dev/null 2>&1; then
+            sha256sum * | tee checksums-sha256.txt
+          else
+            echo "No artifacts found to checksum" && exit 1
+          fi
+
+      - name: Upload checksums to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          gh release upload "$TAG" \
+            artifacts/checksums-sha256.txt \
+            --repo "${{ github.repository }}" \
+            --clobber
