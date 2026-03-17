@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { SshSession, SshSessionDraft, AuthMethod } from "../types";
-import { emptySshDraft } from "../types";
+import type { SshSession, SshSessionDraft, AuthMethod, Protocol } from "../types";
+import { emptySshDraft, emptyVncDraft } from "../types";
 
 interface SshSessionFormProps {
   /** If provided, the form pre-fills with this session's data (edit mode). */
@@ -12,9 +12,9 @@ interface SshSessionFormProps {
 }
 
 /**
- * Form for creating or editing an SSH session configuration.
+ * Form for creating or editing a session configuration (SSH or VNC).
  *
- * Fields: label, host, port, username, auth method, password / key path, notes.
+ * Fields are conditionally shown based on the selected protocol.
  */
 export default function SshSessionForm({
   initial,
@@ -42,24 +42,43 @@ export default function SshSessionForm({
     }
   };
 
+  /** Handle protocol change — reset form to appropriate defaults. */
+  const handleProtocolChange = (protocol: Protocol) => {
+    if (protocol === draft.protocol) return;
+    const base = protocol === "vnc" ? emptyVncDraft() : emptySshDraft();
+    // Preserve label, host, and notes across protocol switches
+    setDraft({
+      ...base,
+      label: draft.label,
+      host: draft.host,
+      notes: draft.notes,
+    });
+    setErrors({});
+  };
+
   /** Basic client-side validation. */
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
     if (!draft.label.trim()) errs.label = "Label is required";
     if (!draft.host.trim()) errs.host = "Host is required";
-    if (!draft.username.trim()) errs.username = "Username is required";
     if (draft.port < 1 || draft.port > 65535)
       errs.port = "Port must be 1–65535";
-    if (
-      draft.auth_method === "password" &&
-      (!draft.password || !draft.password.trim())
-    )
-      errs.password = "Password is required for password auth";
-    if (
-      draft.auth_method === "key" &&
-      (!draft.private_key_path || !draft.private_key_path.trim())
-    )
-      errs.private_key_path = "Key path is required for key auth";
+
+    // SSH-specific validation
+    if (draft.protocol === "ssh") {
+      if (!draft.username.trim()) errs.username = "Username is required";
+      if (
+        draft.auth_method === "password" &&
+        (!draft.password || !draft.password.trim())
+      )
+        errs.password = "Password is required for password auth";
+      if (
+        draft.auth_method === "key" &&
+        (!draft.private_key_path || !draft.private_key_path.trim())
+      )
+        errs.private_key_path = "Key path is required for key auth";
+    }
+
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -70,9 +89,24 @@ export default function SshSessionForm({
     onSubmit(draft, initial?.id);
   };
 
+  const isSsh = draft.protocol === "ssh";
+
   return (
     <form onSubmit={handleSubmit}>
       <h2>{initial ? "Edit Host" : "New Host"}</h2>
+
+      {/* Protocol */}
+      <div className="form-group">
+        <label htmlFor="protocol">Protocol</label>
+        <select
+          id="protocol"
+          value={draft.protocol}
+          onChange={(e) => handleProtocolChange(e.target.value as Protocol)}
+        >
+          <option value="ssh">SSH</option>
+          <option value="vnc">VNC</option>
+        </select>
+      </div>
 
       {/* Label */}
       <div className="form-group">
@@ -80,7 +114,7 @@ export default function SshSessionForm({
         <input
           id="label"
           type="text"
-          placeholder="e.g. Production Server"
+          placeholder={isSsh ? "e.g. Production Server" : "e.g. Dev Workstation"}
           value={draft.label}
           onChange={(e) => set("label", e.target.value)}
         />
@@ -114,38 +148,77 @@ export default function SshSessionForm({
         </div>
       </div>
 
-      {/* Username */}
-      <div className="form-group">
-        <label htmlFor="username">Username</label>
-        <input
-          id="username"
-          type="text"
-          placeholder="root"
-          value={draft.username}
-          onChange={(e) => set("username", e.target.value)}
-        />
-        {errors.username && (
-          <span className="field-error">{errors.username}</span>
-        )}
-      </div>
+      {/* SSH-specific fields */}
+      {isSsh && (
+        <>
+          {/* Username */}
+          <div className="form-group">
+            <label htmlFor="username">Username</label>
+            <input
+              id="username"
+              type="text"
+              placeholder="root"
+              value={draft.username}
+              onChange={(e) => set("username", e.target.value)}
+            />
+            {errors.username && (
+              <span className="field-error">{errors.username}</span>
+            )}
+          </div>
 
-      {/* Auth Method */}
-      <div className="form-group">
-        <label htmlFor="auth_method">Authentication</label>
-        <select
-          id="auth_method"
-          value={draft.auth_method}
-          onChange={(e) => set("auth_method", e.target.value as AuthMethod)}
-        >
-          <option value="password">Password</option>
-          <option value="key">SSH Key</option>
-        </select>
-      </div>
+          {/* Auth Method */}
+          <div className="form-group">
+            <label htmlFor="auth_method">Authentication</label>
+            <select
+              id="auth_method"
+              value={draft.auth_method}
+              onChange={(e) => set("auth_method", e.target.value as AuthMethod)}
+            >
+              <option value="password">Password</option>
+              <option value="key">SSH Key</option>
+            </select>
+          </div>
 
-      {/* Password (conditional) */}
-      {draft.auth_method === "password" && (
+          {/* Password (conditional) */}
+          {draft.auth_method === "password" && (
+            <div className="form-group">
+              <label htmlFor="password">Password</label>
+              <input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                value={draft.password ?? ""}
+                onChange={(e) => set("password", e.target.value)}
+              />
+              {errors.password && (
+                <span className="field-error">{errors.password}</span>
+              )}
+            </div>
+          )}
+
+          {/* Key path (conditional) */}
+          {draft.auth_method === "key" && (
+            <div className="form-group">
+              <label htmlFor="private_key_path">Private Key Path</label>
+              <input
+                id="private_key_path"
+                type="text"
+                placeholder="C:\\Users\\you\\.ssh\\id_ed25519"
+                value={draft.private_key_path ?? ""}
+                onChange={(e) => set("private_key_path", e.target.value)}
+              />
+              {errors.private_key_path && (
+                <span className="field-error">{errors.private_key_path}</span>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* VNC password (optional) */}
+      {!isSsh && (
         <div className="form-group">
-          <label htmlFor="password">Password</label>
+          <label htmlFor="password">VNC Password (optional)</label>
           <input
             id="password"
             type="password"
@@ -153,26 +226,6 @@ export default function SshSessionForm({
             value={draft.password ?? ""}
             onChange={(e) => set("password", e.target.value)}
           />
-          {errors.password && (
-            <span className="field-error">{errors.password}</span>
-          )}
-        </div>
-      )}
-
-      {/* Key path (conditional) */}
-      {draft.auth_method === "key" && (
-        <div className="form-group">
-          <label htmlFor="private_key_path">Private Key Path</label>
-          <input
-            id="private_key_path"
-            type="text"
-            placeholder="C:\Users\you\.ssh\id_ed25519"
-            value={draft.private_key_path ?? ""}
-            onChange={(e) => set("private_key_path", e.target.value)}
-          />
-          {errors.private_key_path && (
-            <span className="field-error">{errors.private_key_path}</span>
-          )}
         </div>
       )}
 

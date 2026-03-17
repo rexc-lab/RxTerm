@@ -675,6 +675,39 @@ button:active {
   background-color: #313244;
 }
 
+/* ─── Protocol badges ─── */
+
+.protocol-badge {
+  display: inline-block;
+  font-size: 0.55rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+  line-height: 1.4;
+}
+
+.protocol-ssh {
+  background-color: #1e3a5f;
+  color: #89b4fa;
+}
+
+.protocol-vnc {
+  background-color: #3a1e5f;
+  color: #cba6f7;
+}
+
+/* ─── VNC pane ─── */
+
+.vnc-container {
+  width: 100%;
+  height: 100%;
+  background-color: #0f0f1a;
+}
+
 /* ─── Dialog overlay ─── */
 
 .dialog-overlay {
