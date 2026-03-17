@@ -268,7 +268,7 @@ export default function App() {
     <div className="app-layout">
       {/* ─── Upper panel: session management ─── */}
       <div className="session-panel">
-        <h1>RxTerm</h1>
+
 
         {status && (
           <div
@@ -284,7 +284,7 @@ export default function App() {
           <>
             <div className="button-row">
               <button className="btn-primary" onClick={openNewForm}>
-                + New Session
+                + New Host
               </button>
               <button className="btn-secondary" onClick={handleExport}>
                 Export

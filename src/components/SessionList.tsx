@@ -26,7 +26,7 @@ export default function SessionList({
   if (sessions.length === 0) {
     return (
       <p style={{ color: "#64748b", marginTop: "1.5rem" }}>
-        No saved sessions yet. Click <strong>New Session</strong> to get started.
+        No saved sessions yet. Click <strong>New Host</strong> to get started.
       </p>
     );
   }
