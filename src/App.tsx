@@ -59,6 +59,23 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const isResizing = useRef(false);
 
+  // ─── Settings popup ──────────────────────────────────────────
+  const [showSettings, setShowSettings] = useState(false);
+
+  // ─── Font size ─────────────────────────────────────────────
+  const [fontSize, setFontSize] = useState(() => {
+    const saved = localStorage.getItem("rxterm-font-size");
+    return saved ? Number(saved) : 16;
+  });
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--base-font-size", `${fontSize}px`);
+    localStorage.setItem("rxterm-font-size", String(fontSize));
+  }, [fontSize]);
+
+  const decreaseFontSize = () => setFontSize((s) => Math.max(10, s - 1));
+  const increaseFontSize = () => setFontSize((s) => Math.min(24, s + 1));
+
   /** Load sessions from the backend on mount. */
   useEffect(() => {
     getSessions()
@@ -285,8 +302,6 @@ export default function App() {
           <span>Hosts</span>
           <div className="sidebar-header-actions">
             <button onClick={openNewForm} title="New Host">+</button>
-            <button onClick={handleExport} title="Export">&#x21e7;</button>
-            <button onClick={handleImport} title="Import">&#x21e9;</button>
           </div>
         </div>
 
@@ -321,6 +336,39 @@ export default function App() {
             />
           </div>
         )}
+
+        {/* ─── Settings footer ─── */}
+        <div className="sidebar-footer">
+          <button
+            className="sidebar-settings-btn"
+            onClick={() => setShowSettings((v) => !v)}
+            title="Settings"
+          >
+            &#x2699; Settings
+          </button>
+
+          {showSettings && (
+            <div className="settings-overlay" onClick={() => setShowSettings(false)}>
+              <div className="settings-popup" onClick={(e) => e.stopPropagation()}>
+                <div className="settings-row">
+                  <span className="settings-label">Font Size</span>
+                  <div className="settings-controls">
+                    <button onClick={decreaseFontSize} title="Decrease">A−</button>
+                    <span className="settings-value">{fontSize}px</span>
+                    <button onClick={increaseFontSize} title="Increase">A+</button>
+                  </div>
+                </div>
+                <div className="settings-divider" />
+                <button className="settings-action" onClick={() => { handleExport(); setShowSettings(false); }}>
+                  &#x21e7; Export Hosts
+                </button>
+                <button className="settings-action" onClick={() => { handleImport(); setShowSettings(false); }}>
+                  &#x21e9; Import Hosts
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ─── Resize handle ─── */}

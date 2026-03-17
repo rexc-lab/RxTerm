@@ -1,6 +1,7 @@
 :root {
+  --base-font-size: 16px;
   font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
+  font-size: var(--base-font-size);
   line-height: 1.5;
   font-weight: 400;
   color: #e0e0e0;
@@ -566,6 +567,112 @@ button:active {
   font-size: 0.78rem;
   color: #6c7086;
   text-align: center;
+}
+
+/* ─── Settings footer ─── */
+
+.sidebar-footer {
+  flex-shrink: 0;
+  border-top: 1px solid #2e2e3e;
+  position: relative;
+}
+
+.sidebar-settings-btn {
+  width: 100%;
+  background: none;
+  border: none;
+  color: #7f849c;
+  font-size: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.sidebar-settings-btn:hover {
+  background-color: #313244;
+  color: #cdd6f4;
+}
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-popup {
+  background-color: #1e1e2e;
+  border: 1px solid #2e2e3e;
+  border-radius: 8px;
+  padding: 0.5rem 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  min-width: 260px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.75rem;
+}
+
+.settings-label {
+  font-size: 0.75rem;
+  color: #cdd6f4;
+}
+
+.settings-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.settings-controls button {
+  background: none;
+  border: 1px solid #45475a;
+  color: #cdd6f4;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.settings-controls button:hover {
+  background-color: #313244;
+}
+
+.settings-value {
+  font-size: 0.72rem;
+  color: #7f849c;
+  min-width: 2.5rem;
+  text-align: center;
+}
+
+.settings-divider {
+  height: 1px;
+  background-color: #2e2e3e;
+  margin: 0.35rem 0;
+}
+
+.settings-action {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  color: #cdd6f4;
+  font-size: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.settings-action:hover {
+  background-color: #313244;
 }
 
 /* ─── Dialog overlay ─── */
