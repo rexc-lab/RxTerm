@@ -27,6 +27,12 @@ export default function VncPane({
 }: VncPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<RFB | null>(null);
+  const passwordRef = useRef(password);
+  const onDisconnectedRef = useRef(onDisconnected);
+
+  // Keep refs in sync with latest props
+  passwordRef.current = password;
+  onDisconnectedRef.current = onDisconnected;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -34,7 +40,7 @@ export default function VncPane({
     const url = `ws://127.0.0.1:${wsPort}`;
 
     const rfb = new RFB(containerRef.current, url, {
-      credentials: password ? { password } : undefined,
+      credentials: passwordRef.current ? { password: passwordRef.current } : undefined,
     });
     rfb.scaleViewport = true;
     rfb.resizeSession = true;
@@ -45,13 +51,14 @@ export default function VncPane({
       if (!clean) {
         console.warn(`[VNC ${connectionId}] unclean disconnect`);
       }
-      onDisconnected();
+      onDisconnectedRef.current();
     });
 
     rfb.addEventListener("credentialsrequired", () => {
-      // If we have a password, send it; otherwise disconnect
-      if (password) {
-        rfb.sendCredentials({ password });
+      if (passwordRef.current) {
+        rfb.sendCredentials({ password: passwordRef.current });
+      } else {
+        rfb.disconnect();
       }
     });
 
@@ -61,8 +68,6 @@ export default function VncPane({
         rfbRef.current = null;
       }
     };
-    // connectionId and wsPort are stable for the lifetime of this component
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionId, wsPort]);
 
   return (

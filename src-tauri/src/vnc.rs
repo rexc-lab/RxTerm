@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -11,11 +12,14 @@ use tokio::task::JoinHandle;
 /// Maximum number of concurrent VNC proxy connections allowed.
 const MAX_VNC_CONNECTIONS: usize = 16;
 
+/// Maximum time (in seconds) to wait for a WebSocket client to connect.
+const ACCEPT_TIMEOUT_SECS: u64 = 30;
+
+/// Maximum time (in seconds) to wait for the WebSocket handshake to complete.
+const HANDSHAKE_TIMEOUT_SECS: u64 = 10;
+
 /// A running VNC WebSocket proxy instance.
-#[allow(dead_code)]
 struct VncProxy {
-    /// The local port the WebSocket server is listening on.
-    ws_port: u16,
     /// Handle to the listener task (for cleanup).
     listener_task: JoinHandle<()>,
 }
@@ -66,19 +70,20 @@ impl VncConnectionManager {
 
         let vnc_addr = format!("{}:{}", vnc_host, vnc_port);
         let cid = connection_id.to_string();
+        let proxies = self.proxies.clone();
 
-        // Spawn the listener task — accepts one connection then proxies
+        // Spawn the listener task — accepts one connection then proxies.
+        // The task auto-removes itself from the proxy map on completion.
         let listener_task = tokio::spawn(async move {
             if let Err(e) = run_proxy(listener, &vnc_addr, &cid).await {
                 log::error!("[VNC proxy {}] connection error", cid);
                 log::debug!("[VNC proxy {}] error details: {}", cid, e);
             }
+            // Auto-cleanup: remove this proxy entry when the task finishes
+            proxies.lock().await.remove(&cid);
         });
 
-        let proxy = VncProxy {
-            ws_port,
-            listener_task,
-        };
+        let proxy = VncProxy { listener_task };
         self.proxies
             .lock()
             .await
@@ -131,9 +136,15 @@ async fn run_proxy(
     vnc_addr: &str,
     _connection_id: &str,
 ) -> Result<(), VncError> {
-    // Wait for the noVNC WebSocket client to connect
+    // Wait for the noVNC WebSocket client to connect (with timeout)
     let (ws_stream, peer_addr): (TcpStream, SocketAddr) =
-        listener.accept().await.map_err(VncError::Io)?;
+        tokio::time::timeout(Duration::from_secs(ACCEPT_TIMEOUT_SECS), listener.accept())
+            .await
+            .map_err(|_| VncError::Io(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timed out waiting for WebSocket client to connect",
+            )))?
+            .map_err(VncError::Io)?;
 
     // Only accept connections from localhost
     if !peer_addr.ip().is_loopback() {
@@ -143,9 +154,13 @@ async fn run_proxy(
         )));
     }
 
-    // Upgrade the TCP connection to a WebSocket connection
-    let ws = tokio_tungstenite::accept_async(ws_stream)
+    // Upgrade the TCP connection to a WebSocket connection (with timeout)
+    let ws = tokio::time::timeout(
+        Duration::from_secs(HANDSHAKE_TIMEOUT_SECS),
+        tokio_tungstenite::accept_async(ws_stream),
+    )
         .await
+        .map_err(|_| VncError::WebSocket("WebSocket handshake timed out".to_string()))?
         .map_err(|e| VncError::WebSocket(e.to_string()))?;
 
     // Connect to the actual VNC server

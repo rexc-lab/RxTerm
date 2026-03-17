@@ -203,7 +203,7 @@ export default function SshSessionForm({
               <input
                 id="private_key_path"
                 type="text"
-                placeholder="C:\Users\you\.ssh\id_ed25519"
+                placeholder="C:\\Users\\you\\.ssh\\id_ed25519"
                 value={draft.private_key_path ?? ""}
                 onChange={(e) => set("private_key_path", e.target.value)}
               />

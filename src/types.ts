@@ -89,8 +89,6 @@ export function emptyVncDraft(): SshSessionDraft {
     port: 5900,
     username: "",
     auth_method: "password",
-    password: "",
-    private_key_path: "",
     notes: "",
   };
 }
