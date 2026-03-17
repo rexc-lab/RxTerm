@@ -6,6 +6,9 @@ dist/
 # ─── Rust / Cargo ───
 src-tauri/target/
 
+# ─── Release artifacts ───
+release/
+
 # Prerequisites
 *.d
 

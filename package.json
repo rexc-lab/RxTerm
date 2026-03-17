@@ -1,6 +1,6 @@
 {
   "name": "rxterm",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "A lightweight, modern terminal and remote session management program built for daily use on Windows. RxTerm aims to provide a streamlined, minimal-setup experience for managing SSH, VNC, and RDP connections — with first-class support for split-screen layouts, tunneling, file transfers, and offline operation.",
   "scripts": {
     "dev": "vite",
