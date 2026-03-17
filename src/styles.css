@@ -32,21 +32,174 @@ body {
   min-height: 100vh;
 }
 
-/* ─── App layout ─── */
+/* ─── App layout (VS Code-style) ─── */
 
 .app-layout {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100vh;
   overflow: hidden;
 }
 
-.session-panel {
-  flex: 0 0 auto;
-  max-height: 50vh;
+/* ─── Left sidebar ─── */
+
+.sidebar {
+  min-width: 160px;
+  max-width: 600px;
+  background-color: #181825;
+  border-right: 1px solid #2e2e3e;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* ─── Resize handle ─── */
+
+.resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background-color: transparent;
+  transition: background-color 0.15s;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+  background-color: #89b4fa;
+}
+
+.app-layout.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid #2e2e3e;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #7f849c;
+  user-select: none;
+}
+
+.sidebar-header-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.sidebar-header-actions button {
+  background: none;
+  border: none;
+  color: #7f849c;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.sidebar-header-actions button:hover {
+  background-color: #313244;
+  color: #cdd6f4;
+}
+
+.sidebar-body {
+  flex: 1;
   overflow-y: auto;
-  padding: 1.5rem 2rem;
-  border-bottom: 1px solid #334155;
+  padding: 0.25rem 0;
+}
+
+.sidebar-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-body::-webkit-scrollbar-thumb {
+  background-color: #45475a;
+  border-radius: 3px;
+}
+
+.sidebar-form {
+  padding: 0.75rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.sidebar-form h2 {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #cdd6f4;
+  margin-bottom: 0.6rem;
+}
+
+.sidebar-form .form-group label {
+  font-size: 0.75rem;
+  color: #7f849c;
+}
+
+.sidebar-form .form-group input,
+.sidebar-form .form-group select,
+.sidebar-form .form-group textarea {
+  font-size: 0.78rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 4px;
+  background-color: #11111b;
+  border-color: #2e2e3e;
+}
+
+.sidebar-form .form-group input:focus,
+.sidebar-form .form-group select:focus,
+.sidebar-form .form-group textarea:focus {
+  border-color: #89b4fa;
+}
+
+.sidebar-form .form-group {
+  margin-bottom: 0.6rem;
+}
+
+.sidebar-form .form-row {
+  gap: 0.5rem;
+}
+
+.sidebar-form .field-error {
+  font-size: 0.68rem;
+}
+
+.sidebar-form button {
+  font-size: 0.78rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 4px;
+}
+
+.sidebar-form .button-row {
+  margin-top: 0.75rem;
+  gap: 0.5rem;
+}
+
+/* ─── Main content area ─── */
+
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: #0f0f1a;
+}
+
+.main-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #45475a;
+  font-size: 0.9rem;
+  user-select: none;
 }
 
 h1 {
@@ -164,47 +317,86 @@ button:active {
   margin-top: 1.25rem;
 }
 
-/* ─── Session list ─── */
+/* ─── Host list (sidebar items) ─── */
 
 .session-list {
-  margin-top: 2rem;
+  margin: 0;
+  padding: 0;
 }
 
-.session-card {
-  background-color: #16213e;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-  margin-bottom: 0.75rem;
+.host-item {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.1s;
+  border-left: 2px solid transparent;
 }
 
-.session-card-info {
+.host-item:hover {
+  background-color: #313244;
+}
+
+.host-item.connected {
+  border-left-color: #a6e3a1;
+}
+
+.host-item-info {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 1px;
 }
 
-.session-card-info .session-label {
-  font-weight: 600;
-  color: #e2e8f0;
+.host-item-label {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #cdd6f4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.session-card-info .session-detail {
-  font-size: 0.8rem;
-  color: #64748b;
+.host-item-detail {
+  font-size: 0.68rem;
+  color: #6c7086;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.session-card-actions {
+.host-item-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.2rem;
+  opacity: 0;
+  transition: opacity 0.1s;
+  margin-left: 0.25rem;
+  flex-shrink: 0;
 }
 
-.session-card-actions button {
-  padding: 0.35rem 0.75rem;
-  font-size: 0.8rem;
+.host-item:hover .host-item-actions {
+  opacity: 1;
+}
+
+.host-item-actions button {
+  background: none;
+  border: none;
+  color: #7f849c;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.3rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.host-item-actions button:hover {
+  background-color: #45475a;
+  color: #cdd6f4;
+}
+
+.host-item-actions .btn-delete:hover {
+  color: #f38ba8;
 }
 
 /* ─── Status messages ─── */
@@ -258,47 +450,50 @@ button:active {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  min-height: 200px;
-  background-color: #0f172a;
+  overflow: hidden;
 }
 
 .terminal-tab-bar {
   display: flex;
-  gap: 2px;
-  padding: 0.25rem 0.5rem 0;
-  background-color: #1e293b;
-  border-bottom: 1px solid #334155;
+  gap: 0;
+  padding: 0;
+  background-color: #181825;
+  border-bottom: 1px solid #2e2e3e;
   flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.terminal-tab-bar::-webkit-scrollbar {
+  height: 0;
 }
 
 .terminal-tab {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.35rem 0.75rem;
-  background-color: #0f172a;
-  color: #94a3b8;
-  border-radius: 6px 6px 0 0;
+  padding: 0.45rem 0.85rem;
+  background-color: #11111b;
+  color: #6c7086;
+  border-right: 1px solid #2e2e3e;
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   user-select: none;
   transition: background-color 0.1s ease;
+  white-space: nowrap;
 }
 
 .terminal-tab:hover {
-  background-color: #1a1a2e;
+  background-color: #1e1e2e;
 }
 
 .terminal-tab.active {
-  background-color: #0f172a;
-  color: #e2e8f0;
-  border: 1px solid #334155;
-  border-bottom: 1px solid #0f172a;
-  margin-bottom: -1px;
+  background-color: #0f0f1a;
+  color: #cdd6f4;
+  border-bottom: 2px solid #89b4fa;
 }
 
 .terminal-tab-label {
-  max-width: 120px;
+  max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -307,15 +502,15 @@ button:active {
 .terminal-tab-close {
   background: none !important;
   border: none !important;
-  color: #64748b;
-  padding: 0 0.2rem !important;
-  font-size: 1rem;
+  color: #6c7086;
+  padding: 0 0.15rem !important;
+  font-size: 0.9rem;
   line-height: 1;
   cursor: pointer;
 }
 
 .terminal-tab-close:hover {
-  color: #f87171;
+  color: #f38ba8;
 }
 
 .terminal-pane-wrapper {
@@ -344,6 +539,33 @@ button:active {
 
 .btn-connect:hover {
   background-color: #047857;
+}
+
+/* ─── Sidebar status ─── */
+
+.sidebar-status {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.75rem;
+  border-bottom: 1px solid #2e2e3e;
+}
+
+.sidebar-status.status-success {
+  background-color: #1e3a2f;
+  color: #a6e3a1;
+  border-color: #2e4a3f;
+}
+
+.sidebar-status.status-error {
+  background-color: #3a1e1e;
+  color: #f38ba8;
+  border-color: #4a2e2e;
+}
+
+.sidebar-empty {
+  padding: 1rem 0.75rem;
+  font-size: 0.78rem;
+  color: #6c7086;
+  text-align: center;
 }
 
 /* ─── Dialog overlay ─── */

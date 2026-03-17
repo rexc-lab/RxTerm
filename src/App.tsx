@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import SshSessionForm from "./components/SshSessionForm";
 import SessionList from "./components/SessionList";
 import TerminalPane from "./components/TerminalPane";
@@ -54,6 +54,10 @@ export default function App() {
     resolve: (pw: string | null) => void;
   } | null>(null);
   const [passwordInput, setPasswordInput] = useState("");
+
+  // ─── Sidebar resize ────────────────────────────────────────
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const isResizing = useRef(false);
 
   /** Load sessions from the backend on mount. */
   useEffect(() => {
@@ -265,14 +269,30 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app-layout">
-      {/* ─── Upper panel: session management ─── */}
-      <div className="session-panel">
-
+    <div
+      className={`app-layout${isResizing.current ? ' resizing' : ''}`}
+      onMouseMove={(e) => {
+        if (!isResizing.current) return;
+        const newWidth = Math.max(160, Math.min(e.clientX, 600));
+        setSidebarWidth(newWidth);
+      }}
+      onMouseUp={() => { isResizing.current = false; }}
+      onMouseLeave={() => { isResizing.current = false; }}
+    >
+      {/* ─── Left sidebar: host list ─── */}
+      <div className="sidebar" style={{ width: sidebarWidth }}>
+        <div className="sidebar-header">
+          <span>Hosts</span>
+          <div className="sidebar-header-actions">
+            <button onClick={openNewForm} title="New Host">+</button>
+            <button onClick={handleExport} title="Export">&#x21e7;</button>
+            <button onClick={handleImport} title="Import">&#x21e9;</button>
+          </div>
+        </div>
 
         {status && (
           <div
-            className={`status-message ${
+            className={`sidebar-status ${
               status.type === "success" ? "status-success" : "status-error"
             }`}
           >
@@ -281,63 +301,67 @@ export default function App() {
         )}
 
         {view === "list" && (
-          <>
-            <div className="button-row">
-              <button className="btn-primary" onClick={openNewForm}>
-                + New Host
-              </button>
-              <button className="btn-secondary" onClick={handleExport}>
-                Export
-              </button>
-              <button className="btn-secondary" onClick={handleImport}>
-                Import
-              </button>
-            </div>
+          <div className="sidebar-body">
             <SessionList
               sessions={sessions}
+              connections={connections}
               onConnect={handleConnect}
               onEdit={openEditForm}
               onDelete={handleDelete}
             />
-          </>
+          </div>
         )}
 
         {view === "form" && (
-          <SshSessionForm
-            initial={editing}
-            onSubmit={handleSubmit}
-            onCancel={cancel}
-          />
+          <div className="sidebar-form">
+            <SshSessionForm
+              initial={editing}
+              onSubmit={handleSubmit}
+              onCancel={cancel}
+            />
+          </div>
         )}
       </div>
 
-      {/* ─── Lower panel: terminal tabs + panes ─── */}
-      {connections.length > 0 && (
-        <div className="terminal-panel">
-          <TerminalTabs
-            connections={connections}
-            activeId={activeConnectionId}
-            onSelect={setActiveConnectionId}
-            onClose={handleDisconnect}
-          />
-          <div className="terminal-pane-wrapper">
-            {connections.map((conn) => (
-              <div
-                key={conn.id}
-                className="terminal-pane-container"
-                style={{
-                  display: conn.id === activeConnectionId ? "block" : "none",
-                }}
-              >
-                <TerminalPane
-                  connectionId={conn.id}
-                  onDisconnected={() => handleRemoteDisconnect(conn.id)}
-                />
-              </div>
-            ))}
+      {/* ─── Resize handle ─── */}
+      <div
+        className="resize-handle"
+        onMouseDown={() => { isResizing.current = true; }}
+      />
+
+      {/* ─── Right main area: terminals ─── */}
+      <div className="main-content">
+        {connections.length > 0 ? (
+          <div className="terminal-panel">
+            <TerminalTabs
+              connections={connections}
+              activeId={activeConnectionId}
+              onSelect={setActiveConnectionId}
+              onClose={handleDisconnect}
+            />
+            <div className="terminal-pane-wrapper">
+              {connections.map((conn) => (
+                <div
+                  key={conn.id}
+                  className="terminal-pane-container"
+                  style={{
+                    display: conn.id === activeConnectionId ? "block" : "none",
+                  }}
+                >
+                  <TerminalPane
+                    connectionId={conn.id}
+                    onDisconnected={() => handleRemoteDisconnect(conn.id)}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="main-empty">
+            Select a host and click Connect to open a terminal
+          </div>
+        )}
+      </div>
 
       {/* ─── Host key verification dialog ─── */}
       {hostKeyPrompt && (

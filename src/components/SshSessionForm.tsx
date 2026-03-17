@@ -72,7 +72,7 @@ export default function SshSessionForm({
 
   return (
     <form onSubmit={handleSubmit}>
-      <h2>{initial ? "Edit Session" : "New SSH Session"}</h2>
+      <h2>{initial ? "Edit Host" : "New Host"}</h2>
 
       {/* Label */}
       <div className="form-group">
