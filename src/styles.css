@@ -700,12 +700,29 @@ button:active {
   color: #cba6f7;
 }
 
+.protocol-rdp {
+  background-color: #1e4a2e;
+  color: #a6e3a1;
+}
+
 /* ─── VNC pane ─── */
 
 .vnc-container {
   width: 100%;
   height: 100%;
   background-color: #0f0f1a;
+}
+
+/* ─── RDP pane ─── */
+
+.rdp-container {
+  width: 100%;
+  height: 100%;
+  background-color: #0f0f1a;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: auto;
 }
 
 /* ─── Dialog overlay ─── */

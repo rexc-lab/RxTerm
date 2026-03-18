@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { SshSession, SshSessionDraft, AuthMethod, Protocol } from "../types";
-import { emptySshDraft, emptyVncDraft } from "../types";
+import { emptySshDraft, emptyVncDraft, emptyRdpDraft } from "../types";
 
 interface SshSessionFormProps {
   /** If provided, the form pre-fills with this session's data (edit mode). */
@@ -45,7 +45,12 @@ export default function SshSessionForm({
   /** Handle protocol change — reset form to appropriate defaults. */
   const handleProtocolChange = (protocol: Protocol) => {
     if (protocol === draft.protocol) return;
-    const base = protocol === "vnc" ? emptyVncDraft() : emptySshDraft();
+    const base =
+      protocol === "vnc"
+        ? emptyVncDraft()
+        : protocol === "rdp"
+          ? emptyRdpDraft()
+          : emptySshDraft();
     // Preserve label, host, and notes across protocol switches
     setDraft({
       ...base,
@@ -79,6 +84,11 @@ export default function SshSessionForm({
         errs.private_key_path = "Key path is required for key auth";
     }
 
+    // RDP-specific validation
+    if (draft.protocol === "rdp") {
+      if (!draft.username.trim()) errs.username = "Username is required";
+    }
+
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -90,6 +100,7 @@ export default function SshSessionForm({
   };
 
   const isSsh = draft.protocol === "ssh";
+  const isRdp = draft.protocol === "rdp";
 
   return (
     <form onSubmit={handleSubmit}>
@@ -105,6 +116,7 @@ export default function SshSessionForm({
         >
           <option value="ssh">SSH</option>
           <option value="vnc">VNC</option>
+          <option value="rdp">RDP</option>
         </select>
       </div>
 
@@ -216,7 +228,7 @@ export default function SshSessionForm({
       )}
 
       {/* VNC password (optional) */}
-      {!isSsh && (
+      {!isSsh && !isRdp && (
         <div className="form-group">
           <label htmlFor="password">VNC Password (optional)</label>
           <input
@@ -227,6 +239,50 @@ export default function SshSessionForm({
             onChange={(e) => set("password", e.target.value)}
           />
         </div>
+      )}
+
+      {/* RDP-specific fields */}
+      {isRdp && (
+        <>
+          {/* Username */}
+          <div className="form-group">
+            <label htmlFor="username">Username</label>
+            <input
+              id="username"
+              type="text"
+              placeholder="Administrator"
+              value={draft.username}
+              onChange={(e) => set("username", e.target.value)}
+            />
+            {errors.username && (
+              <span className="field-error">{errors.username}</span>
+            )}
+          </div>
+
+          {/* Domain */}
+          <div className="form-group">
+            <label htmlFor="domain">Domain (optional)</label>
+            <input
+              id="domain"
+              type="text"
+              placeholder="WORKGROUP or corp.example.com"
+              value={draft.domain ?? ""}
+              onChange={(e) => set("domain", e.target.value)}
+            />
+          </div>
+
+          {/* Password */}
+          <div className="form-group">
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              placeholder="••••••••"
+              value={draft.password ?? ""}
+              onChange={(e) => set("password", e.target.value)}
+            />
+          </div>
+        </>
       )}
 
       {/* Notes */}

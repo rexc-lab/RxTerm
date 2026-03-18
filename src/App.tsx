@@ -3,6 +3,7 @@ import SshSessionForm from "./components/SshSessionForm";
 import SessionList from "./components/SessionList";
 import TerminalPane from "./components/TerminalPane";
 import VncPane from "./components/VncPane";
+import RdpPane from "./components/RdpPane";
 import TerminalTabs from "./components/TerminalTabs";
 import HostKeyDialog from "./components/HostKeyDialog";
 import type {
@@ -23,6 +24,8 @@ import {
   sshDisconnect,
   vncConnect,
   vncDisconnect,
+  rdpConnect,
+  rdpDisconnect,
 } from "./api";
 
 type View = "list" | "form";
@@ -179,7 +182,7 @@ export default function App() {
     }
   };
 
-  /** Attempt to connect to a session (SSH or VNC). */
+  /** Attempt to connect to a session (SSH, VNC, or RDP). */
   const handleConnect = useCallback(
     async (session: SshSession, overridePassword?: string) => {
       const proto = session.protocol ?? "ssh";
@@ -197,6 +200,27 @@ export default function App() {
             protocol: "vnc",
             wsPort: result.ws_port,
             vncPassword: overridePassword ?? session.password,
+          };
+          setConnections((prev) => [...prev, conn]);
+          setActiveConnectionId(result.connection_id);
+          setStatus({ type: "success", text: `Connected to ${session.label}` });
+        } catch (err: unknown) {
+          setStatus({ type: "error", text: String(err) });
+        }
+        return;
+      }
+
+      if (proto === "rdp") {
+        // RDP connection flow
+        try {
+          setStatus({ type: "success", text: `Connecting to ${session.label}…` });
+          const result = await rdpConnect(session.id, overridePassword ?? session.password);
+
+          const conn: Connection = {
+            id: result.connection_id,
+            sessionId: session.id,
+            label: session.label,
+            protocol: "rdp",
           };
           setConnections((prev) => [...prev, conn]);
           setActiveConnectionId(result.connection_id);
@@ -289,6 +313,8 @@ export default function App() {
     try {
       if (conn?.protocol === "vnc") {
         await vncDisconnect(connectionId);
+      } else if (conn?.protocol === "rdp") {
+        await rdpDisconnect(connectionId);
       } else {
         await sshDisconnect(connectionId);
       }
@@ -437,6 +463,11 @@ export default function App() {
                       connectionId={conn.id}
                       wsPort={conn.wsPort}
                       password={conn.vncPassword}
+                      onDisconnected={() => handleRemoteDisconnect(conn.id)}
+                    />
+                  ) : conn.protocol === "rdp" ? (
+                    <RdpPane
+                      connectionId={conn.id}
                       onDisconnected={() => handleRemoteDisconnect(conn.id)}
                     />
                   ) : (

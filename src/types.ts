@@ -1,12 +1,12 @@
 /** Shared TypeScript types mirroring the Rust data model. */
 
 /** Connection protocol for a session. */
-export type Protocol = "ssh" | "vnc";
+export type Protocol = "ssh" | "vnc" | "rdp";
 
 /** Authentication method for an SSH session. */
 export type AuthMethod = "password" | "key";
 
-/** A saved session configuration (SSH or VNC). */
+/** A saved session configuration (SSH, VNC, or RDP). */
 export interface SshSession {
   /** Unique identifier (UUID v4). */
   id: string;
@@ -16,24 +16,26 @@ export interface SshSession {
   protocol: Protocol;
   /** Remote hostname or IP address. */
   host: string;
-  /** Port (default 22 for SSH, 5900 for VNC). */
+  /** Port (default 22 for SSH, 5900 for VNC, 3389 for RDP). */
   port: number;
-  /** Username for authentication (SSH only). */
+  /** Username for authentication (SSH and RDP). */
   username: string;
   /** Authentication method (SSH only). */
   auth_method: AuthMethod;
-  /** Password (SSH password auth or VNC authentication). */
+  /** Password (SSH password auth, VNC authentication, or RDP authentication). */
   password?: string;
   /** Path to the private key file (SSH key auth only). */
   private_key_path?: string;
   /** Optional notes / description. */
   notes?: string;
+  /** Windows domain for RDP authentication (RDP only). */
+  domain?: string;
 }
 
 /** Shape of the new-session form state (before an id is assigned). */
 export type SshSessionDraft = Omit<SshSession, "id">;
 
-/** An active terminal or VNC connection. */
+/** An active terminal, VNC, or RDP connection. */
 export interface Connection {
   /** Unique connection identifier (UUID). */
   id: string;
@@ -47,6 +49,9 @@ export interface Connection {
   wsPort?: number;
   /** VNC password for the RFB handshake (VNC only). */
   vncPassword?: string;
+  /** RDP desktop dimensions (RDP only). */
+  rdpWidth?: number;
+  rdpHeight?: number;
 }
 
 /** Data returned when a host key is unknown and needs user approval. */
@@ -63,6 +68,25 @@ export interface HostKeyPrompt {
   info: HostKeyInfo;
   sessionId: string;
   password?: string;
+}
+
+/** Payload of an RDP frame update event from the backend. */
+export interface RdpFramePayload {
+  connection_id: string;
+  full_width: number;
+  full_height: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Base64-encoded RGBA pixel data for the dirty rectangle. */
+  data: string;
+}
+
+/** Payload of the rdp-disconnected event. */
+export interface RdpDisconnectedPayload {
+  connection_id: string;
+  reason: string;
 }
 
 /** Create an empty SSH draft with sensible defaults. */
@@ -89,6 +113,21 @@ export function emptyVncDraft(): SshSessionDraft {
     port: 5900,
     username: "",
     auth_method: "password",
+    notes: "",
+  };
+}
+
+/** Create an empty RDP draft with sensible defaults. */
+export function emptyRdpDraft(): SshSessionDraft {
+  return {
+    label: "",
+    protocol: "rdp",
+    host: "",
+    port: 3389,
+    username: "",
+    auth_method: "password",
+    password: "",
+    domain: "",
     notes: "",
   };
 }
