@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
+import type { MouseEvent, WheelEvent, KeyboardEvent } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import type { RdpFramePayload, RdpDisconnectedPayload } from "../types";
 import { rdpMouseEvent, rdpKeyEvent } from "../api";
@@ -80,7 +81,7 @@ export default function RdpPane({ connectionId, onDisconnected }: RdpPaneProps) 
   }, [blitFrame]);
 
   // ── Mouse events ──────────────────────────────────────────────────────────
-  const getCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>): [number, number] => {
+  const getCanvasCoords = (e: MouseEvent<HTMLCanvasElement>): [number, number] => {
     const canvas = canvasRef.current;
     if (!canvas) return [0, 0];
     const rect = canvas.getBoundingClientRect();
@@ -92,25 +93,25 @@ export default function RdpPane({ connectionId, onDisconnected }: RdpPaneProps) 
     ];
   };
 
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleMouseMove = useCallback((e: MouseEvent<HTMLCanvasElement>) => {
     const [x, y] = getCanvasCoords(e);
     rdpMouseEvent(connectionIdRef.current, x, y, null, false, null).catch(() => {});
   }, []);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleMouseDown = useCallback((e: MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const [x, y] = getCanvasCoords(e);
     // button: 0=left, 1=middle, 2=right  (matches MouseEvent.button)
     rdpMouseEvent(connectionIdRef.current, x, y, e.button, true, null).catch(() => {});
   }, []);
 
-  const handleMouseUp = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleMouseUp = useCallback((e: MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const [x, y] = getCanvasCoords(e);
     rdpMouseEvent(connectionIdRef.current, x, y, e.button, false, null).catch(() => {});
   }, []);
 
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
+  const handleWheel = useCallback((e: WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -124,14 +125,14 @@ export default function RdpPane({ connectionId, onDisconnected }: RdpPaneProps) 
     rdpMouseEvent(connectionIdRef.current, x, y, null, false, delta).catch(() => {});
   }, []);
 
-  const handleContextMenu = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleContextMenu = useCallback((e: MouseEvent<HTMLCanvasElement>) => {
     // Prevent the browser's context menu so right-click passes through to RDP
     e.preventDefault();
   }, []);
 
   // ── Keyboard events ───────────────────────────────────────────────────────
   // We listen on the container div with tabIndex so it can receive focus/key events.
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     const scancode = browserCodeToScancode(e.code);
@@ -140,7 +141,7 @@ export default function RdpPane({ connectionId, onDisconnected }: RdpPaneProps) 
     }
   }, []);
 
-  const handleKeyUp = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyUp = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     const scancode = browserCodeToScancode(e.code);

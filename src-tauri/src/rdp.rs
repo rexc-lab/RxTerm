@@ -144,15 +144,7 @@ impl RdpConnectionManager {
         password: &str,
         domain: Option<&str>,
     ) -> Result<(), RdpError> {
-        // Enforce connection limit
-        {
-            let sessions = self.sessions.lock().await;
-            if sessions.len() >= MAX_RDP_CONNECTIONS {
-                return Err(RdpError::TooManyConnections);
-            }
-        }
-
-        // Validate host
+        // Validate host before acquiring the lock
         validate_rdp_host(host)?;
 
         let (input_tx, input_rx) = mpsc::channel::<RdpInput>(64);
@@ -163,6 +155,34 @@ impl RdpConnectionManager {
         let password = password.to_string();
         let domain = domain.map(str::to_string);
         let sessions = self.sessions.clone();
+
+        // ── Atomically enforce the connection limit and reserve the slot ──────
+        //
+        // We insert a placeholder (with a sender whose other end is dropped so
+        // the task exits immediately) BEFORE spawning the actual task.  This
+        // guarantees:
+        //  1. The limit check and the insertion are serialised under one lock
+        //     acquisition, eliminating the TOCTOU race.
+        //  2. If `run_session` completes before the lock is acquired again, the
+        //     cleanup (`sessions.lock().remove(&cid)`) still finds an entry to
+        //     remove, so nothing is left dangling.
+        {
+            let mut sessions_guard = self.sessions.lock().await;
+            if sessions_guard.len() >= MAX_RDP_CONNECTIONS {
+                return Err(RdpError::TooManyConnections);
+            }
+            // Reserve the slot with a placeholder before spawning the task.
+            // The real JoinHandle will be swapped in after `tokio::spawn`.
+            // We use a oneshot placeholder task that immediately finishes.
+            let placeholder_task = tokio::spawn(async {});
+            sessions_guard.insert(
+                cid.clone(),
+                RdpSession {
+                    task: placeholder_task,
+                    input_tx: input_tx.clone(),
+                },
+            );
+        }
 
         let task = tokio::spawn(async move {
             let reason = match run_session(&app, &cid, &host, port, &username, &password, domain.as_deref(), input_rx).await {
@@ -184,46 +204,63 @@ impl RdpConnectionManager {
             sessions.lock().await.remove(&cid);
         });
 
-        let session = RdpSession { task, input_tx };
-        self.sessions
-            .lock()
-            .await
-            .insert(connection_id.to_string(), session);
+        // Replace the placeholder task handle with the real one.
+        {
+            let mut sessions_guard = self.sessions.lock().await;
+            if let Some(entry) = sessions_guard.get_mut(connection_id) {
+                entry.task = task;
+            }
+        }
 
         Ok(())
     }
 
     /// Send a mouse event to an active RDP session.
     pub async fn send_mouse(&self, connection_id: &str, event: RdpMouseEvent) -> Result<(), RdpError> {
-        let sessions = self.sessions.lock().await;
-        let session = sessions
-            .get(connection_id)
-            .ok_or_else(|| RdpError::NotFound(connection_id.to_string()))?;
-        session
-            .input_tx
-            .send(RdpInput::Mouse(event))
+        // Clone the sender while holding the lock, then drop the lock before
+        // awaiting the send to avoid holding the mutex across an `.await`.
+        let tx = {
+            let sessions = self.sessions.lock().await;
+            sessions
+                .get(connection_id)
+                .ok_or_else(|| RdpError::NotFound(connection_id.to_string()))?
+                .input_tx
+                .clone()
+        };
+        tx.send(RdpInput::Mouse(event))
             .await
             .map_err(|_| RdpError::SessionClosed)
     }
 
     /// Send a keyboard event to an active RDP session.
     pub async fn send_key(&self, connection_id: &str, event: RdpKeyEvent) -> Result<(), RdpError> {
-        let sessions = self.sessions.lock().await;
-        let session = sessions
-            .get(connection_id)
-            .ok_or_else(|| RdpError::NotFound(connection_id.to_string()))?;
-        session
-            .input_tx
-            .send(RdpInput::Key(event))
+        // Clone the sender while holding the lock, then drop the lock before
+        // awaiting the send to avoid holding the mutex across an `.await`.
+        let tx = {
+            let sessions = self.sessions.lock().await;
+            sessions
+                .get(connection_id)
+                .ok_or_else(|| RdpError::NotFound(connection_id.to_string()))?
+                .input_tx
+                .clone()
+        };
+        tx.send(RdpInput::Key(event))
             .await
             .map_err(|_| RdpError::SessionClosed)
     }
 
     /// Disconnect and clean up an RDP session.
     pub async fn disconnect(&self, connection_id: &str) -> Result<(), RdpError> {
-        let mut sessions = self.sessions.lock().await;
-        if let Some(session) = sessions.remove(connection_id) {
-            // Signal the session task to exit
+        // Remove the session from the map while holding the lock, then drop
+        // the lock before doing any I/O (send + abort) to avoid holding the
+        // mutex across an `.await`.
+        let session = {
+            let mut sessions = self.sessions.lock().await;
+            sessions.remove(connection_id)
+        };
+        if let Some(session) = session {
+            // Signal the session task to exit gracefully, then abort it in
+            // case it is blocked in a long-running async operation.
             let _ = session.input_tx.send(RdpInput::Disconnect).await;
             session.task.abort();
         }
