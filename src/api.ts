@@ -93,3 +93,48 @@ export async function vncConnect(
 export async function vncDisconnect(connectionId: string): Promise<void> {
   return invoke("vnc_disconnect", { connectionId });
 }
+
+// ─── RDP connection commands ────────────────────────────────────────────────
+
+/** Start an RDP session for the given session. */
+export async function rdpConnect(
+  sessionId: string,
+  password?: string,
+): Promise<{ connection_id: string }> {
+  return invoke<{ connection_id: string }>("rdp_connect", {
+    sessionId,
+    password: password ?? null,
+  });
+}
+
+/** Disconnect an active RDP session. */
+export async function rdpDisconnect(connectionId: string): Promise<void> {
+  return invoke("rdp_disconnect", { connectionId });
+}
+
+/** Send a mouse event to an active RDP session. */
+export async function rdpMouseEvent(
+  connectionId: string,
+  x: number,
+  y: number,
+  button: number | null,
+  pressed: boolean,
+  scrollDelta: number | null,
+): Promise<void> {
+  return invoke("rdp_mouse_event", {
+    connectionId,
+    event: { x, y, button, pressed, scroll_delta: scrollDelta },
+  });
+}
+
+/** Send a keyboard event to an active RDP session. */
+export async function rdpKeyEvent(
+  connectionId: string,
+  scancode: number,
+  pressed: boolean,
+): Promise<void> {
+  return invoke("rdp_key_event", {
+    connectionId,
+    event: { scancode, pressed },
+  });
+}

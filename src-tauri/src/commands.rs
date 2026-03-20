@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, State};
 
 use crate::known_hosts::{self, KnownHostsStore};
+use crate::rdp::{RdpConnectionManager, RdpKeyEvent, RdpMouseEvent};
 use crate::session::{Protocol, SshSession};
 use crate::ssh::SshConnectionManager;
 use crate::vnc::VncConnectionManager;
@@ -19,6 +20,8 @@ pub enum AppError {
     Ssh(String),
     #[error("VNC error: {0}")]
     Vnc(String),
+    #[error("RDP error: {0}")]
+    Rdp(String),
     #[error("Not found: {0}")]
     NotFound(String),
     #[error("HOST_KEY_UNKNOWN:{}", serde_json::to_string(.0).unwrap_or_default())]
@@ -376,4 +379,103 @@ pub async fn vnc_disconnect(
         .stop_proxy(&connection_id)
         .await
         .map_err(|e| AppError::Vnc(e.to_string()))
+}
+
+// ─── RDP connection commands ────────────────────────────────────────────────
+
+/// Response from a successful RDP connection attempt.
+#[derive(serde::Serialize)]
+pub struct RdpConnectResult {
+    connection_id: String,
+}
+
+/// Start an RDP session for the session specified by `session_id`.
+///
+/// Spawns a background Tauri task that:
+///  1. Establishes a TCP connection to the RDP server.
+///  2. Performs TLS and CredSSP negotiation (MS-RDPBCGR §1.3).
+///  3. Enters the active-stage loop, emitting `rdp-frame` events for each
+///     graphics update and `rdp-disconnected` when the session ends.
+#[tauri::command]
+pub async fn rdp_connect(
+    app: AppHandle,
+    rdp_manager: State<'_, RdpConnectionManager>,
+    session_id: String,
+    password: Option<String>,
+) -> Result<RdpConnectResult, AppError> {
+    let sessions = get_sessions().await?;
+    let session = sessions
+        .iter()
+        .find(|s| s.id == session_id)
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?
+        .clone();
+
+    if session.protocol != Protocol::Rdp {
+        return Err(AppError::Rdp("Session is not an RDP session".to_string()));
+    }
+
+    let pw = password
+        .as_deref()
+        .or(session.password.as_deref())
+        .unwrap_or("");
+
+    let connection_id = uuid::Uuid::new_v4().to_string();
+
+    rdp_manager
+        .connect(
+            app,
+            &connection_id,
+            &session.host,
+            session.port,
+            &session.username,
+            pw,
+            session.domain.as_deref(),
+        )
+        .await
+        .map_err(|e| AppError::Rdp(e.to_string()))?;
+
+    Ok(RdpConnectResult { connection_id })
+}
+
+/// Disconnect an active RDP session and clean up resources.
+#[tauri::command]
+pub async fn rdp_disconnect(
+    rdp_manager: State<'_, RdpConnectionManager>,
+    connection_id: String,
+) -> Result<(), AppError> {
+    rdp_manager
+        .disconnect(&connection_id)
+        .await
+        .map_err(|e| AppError::Rdp(e.to_string()))
+}
+
+/// Send a mouse event to an active RDP session.
+///
+/// The frontend should call this for every `mousemove`, `mousedown`, and
+/// `mouseup` event captured on the RDP canvas.
+#[tauri::command]
+pub async fn rdp_mouse_event(
+    rdp_manager: State<'_, RdpConnectionManager>,
+    connection_id: String,
+    event: RdpMouseEvent,
+) -> Result<(), AppError> {
+    rdp_manager
+        .send_mouse(&connection_id, event)
+        .await
+        .map_err(|e| AppError::Rdp(e.to_string()))
+}
+
+/// Send a keyboard event to an active RDP session.
+///
+/// The frontend should call this for every `keydown` and `keyup` event.
+#[tauri::command]
+pub async fn rdp_key_event(
+    rdp_manager: State<'_, RdpConnectionManager>,
+    connection_id: String,
+    event: RdpKeyEvent,
+) -> Result<(), AppError> {
+    rdp_manager
+        .send_key(&connection_id, event)
+        .await
+        .map_err(|e| AppError::Rdp(e.to_string()))
 }

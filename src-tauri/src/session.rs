@@ -8,6 +8,8 @@ pub enum Protocol {
     Ssh,
     /// VNC remote desktop session.
     Vnc,
+    /// RDP remote desktop session.
+    Rdp,
 }
 
 impl Default for Protocol {
@@ -57,4 +59,7 @@ pub struct SshSession {
     /// Optional notes / description.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    /// Windows domain for RDP authentication (RDP only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
 }

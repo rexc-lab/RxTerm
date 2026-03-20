@@ -37,28 +37,32 @@ export default function SessionList({
     <div className="session-list">
       {sessions.map((s) => {
         const proto = s.protocol ?? "ssh";
-        const protoBadge = proto === "vnc" ? "VNC" : "SSH";
+        const protoBadge = proto === "vnc" ? "VNC" : proto === "rdp" ? "RDP" : "SSH";
+        const detail =
+          proto === "vnc"
+            ? `${s.host}:${s.port}`
+            : proto === "rdp"
+              ? `${s.username}@${s.host}:${s.port}`
+              : `${s.username}@${s.host}:${s.port}`;
+        const tooltip =
+          proto === "vnc"
+            ? `${s.host}:${s.port} (VNC) — Double-click to connect`
+            : proto === "rdp"
+              ? `${s.username}@${s.host}:${s.port} (RDP) — Double-click to connect`
+              : `${s.username}@${s.host}:${s.port} — Double-click to connect`;
         return (
           <div
             key={s.id}
             className={`host-item ${connectedSessionIds.has(s.id) ? "connected" : ""}`}
             onDoubleClick={() => onConnect(s)}
-            title={
-              proto === "vnc"
-                ? `${s.host}:${s.port} (VNC) — Double-click to connect`
-                : `${s.username}@${s.host}:${s.port} — Double-click to connect`
-            }
+            title={tooltip}
           >
             <div className="host-item-info">
               <span className="host-item-label">
                 <span className={`protocol-badge protocol-${proto}`}>{protoBadge}</span>
                 {s.label}
               </span>
-              <span className="host-item-detail">
-                {proto === "vnc"
-                  ? `${s.host}:${s.port}`
-                  : `${s.username}@${s.host}:${s.port}`}
-              </span>
+              <span className="host-item-detail">{detail}</span>
             </div>
             <div className="host-item-actions">
               <button onClick={() => onConnect(s)} title="Connect">&#x25B6;</button>
