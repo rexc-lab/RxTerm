@@ -106,8 +106,23 @@ impl SshConnectionManager {
 
         // Authenticate
         let authenticated = if let Some(key_path) = private_key_path {
-            let key_pair = russh_keys::load_secret_key(key_path, None)
-                .map_err(|e| ConnectError::Auth(format!("Failed to load key: {}", e)))?;
+            // ROB-5: first try loading the key without a passphrase.
+            // If it fails, try with the password (if provided) as the passphrase.
+            let key_pair = match russh_keys::load_secret_key(key_path, None) {
+                Ok(kp) => kp,
+                Err(_) if password.is_some() => {
+                    // Retry with the supplied password as the key passphrase
+                    russh_keys::load_secret_key(key_path, password)
+                        .map_err(|e| ConnectError::Auth(format!(
+                            "Failed to load key (passphrase may be incorrect): {}", e
+                        )))?
+                }
+                Err(_) => {
+                    return Err(ConnectError::Auth(
+                        "SSH key is passphrase-protected. Please provide the passphrase in the password field.".to_string()
+                    ));
+                }
+            };
             session
                 .authenticate_publickey(username, Arc::new(key_pair))
                 .await

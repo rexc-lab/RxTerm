@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { SshSession, SshSessionDraft, AuthMethod, Protocol } from "../types";
 import { emptySshDraft, emptyVncDraft, emptyRdpDraft } from "../types";
 
@@ -25,6 +25,13 @@ export default function SshSessionForm({
     initial ? { ...initial } : emptySshDraft(),
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // FE-5: sync form state when the `initial` prop changes (e.g. user
+  // clicks Edit on a different session without unmounting the form).
+  useEffect(() => {
+    setDraft(initial ? { ...initial } : emptySshDraft());
+    setErrors({});
+  }, [initial?.id]);
 
   /** Update a single field in the draft. */
   const set = <K extends keyof SshSessionDraft>(

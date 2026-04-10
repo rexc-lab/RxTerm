@@ -331,9 +331,13 @@ async fn run_session(
 ) -> Result<String, RdpError> {
     let addr = format!("{}:{}", host, port);
 
-    // ── 1. TCP connect ────────────────────────────────────────────────────
-    let tcp_stream = TcpStream::connect(&addr)
+    // ── 1. TCP connect (ROB-4: with 15-second timeout) ─────────────────
+    let tcp_stream = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        TcpStream::connect(&addr),
+    )
         .await
+        .map_err(|_| RdpError::Io(format!("TCP connect to {} timed out after 15 seconds", addr)))?
         .map_err(|e| RdpError::Io(format!("TCP connect to {}: {}", addr, e)))?;
 
     let server_name = ServerName::new(host);
@@ -462,7 +466,10 @@ async fn run_session(
                             if rect_w == 0 || rect_h == 0 {
                                 continue;
                             }
-                            let rgba = extract_rect_rgba(&image, rect.left, rect.top, rect_w, rect_h);
+                            let rgba = match extract_rect_rgba(&image, rect.left, rect.top, rect_w, rect_h) {
+                                Some(data) => data,
+                                None => continue, // ROB-1: skip malformed rects
+                            };
                             let payload = RdpFramePayload {
                                 connection_id: connection_id.to_string(),
                                 full_width: full_w,
@@ -552,24 +559,43 @@ async fn run_session(
 ///
 /// The image data is stored row-major. For a partial-width rectangle we must
 /// copy each row individually to avoid including pixels from adjacent columns.
+///
+/// ROB-1: validates that the rectangle fits within the image bounds to prevent
+/// panics from untrusted RDP server data.
 fn extract_rect_rgba(
     image: &DecodedImage,
     left: u16,
     top: u16,
     width: u16,
     height: u16,
-) -> Vec<u8> {
+) -> Option<Vec<u8>> {
     let bpp = image.bytes_per_pixel();
     let stride = image.stride();
     let data = image.data();
     let w = width as usize;
     let h = height as usize;
+
+    // ROB-1: bounds check — reject rectangles that extend beyond the image
+    if (left as usize + w) > image.width() as usize
+        || (top as usize + h) > image.height() as usize
+    {
+        log::warn!(
+            "RDP frame rect ({},{} {}x{}) exceeds image bounds ({}x{})",
+            left, top, width, height, image.width(), image.height()
+        );
+        return None;
+    }
+
     let mut out = Vec::with_capacity(w * h * bpp);
     for row in top as usize..(top as usize + h) {
         let start = row * stride + left as usize * bpp;
-        out.extend_from_slice(&data[start..start + w * bpp]);
+        let end = start + w * bpp;
+        if end > data.len() {
+            return None;
+        }
+        out.extend_from_slice(&data[start..end]);
     }
-    out
+    Some(out)
 }
 
 /// Convert a frontend [`RdpMouseEvent`] into a list of IronRDP input operations.

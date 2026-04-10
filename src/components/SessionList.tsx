@@ -50,11 +50,12 @@ export default function SessionList({
             : proto === "rdp"
               ? `${s.username}@${s.host}:${s.port} (RDP) — Double-click to connect`
               : `${s.username}@${s.host}:${s.port} — Double-click to connect`;
+        const isConnected = connectedSessionIds.has(s.id);
         return (
           <div
             key={s.id}
-            className={`host-item ${connectedSessionIds.has(s.id) ? "connected" : ""}`}
-            onDoubleClick={() => onConnect(s)}
+            className={`host-item ${isConnected ? "connected" : ""}`}
+            onDoubleClick={() => { if (!isConnected) onConnect(s); }}
             title={tooltip}
           >
             <div className="host-item-info">
@@ -65,7 +66,8 @@ export default function SessionList({
               <span className="host-item-detail">{detail}</span>
             </div>
             <div className="host-item-actions">
-              <button onClick={() => onConnect(s)} title="Connect">&#x25B6;</button>
+              {/* FE-6: disable connect if already connected to prevent duplicates */}
+              <button onClick={() => onConnect(s)} title={isConnected ? "Already connected" : "Connect"} disabled={isConnected}>&#x25B6;</button>
               <button onClick={() => onEdit(s)} title="Edit">&#x270E;</button>
               <button className="btn-delete" onClick={() => onDelete(s.id)} title="Delete">&#x2715;</button>
             </div>

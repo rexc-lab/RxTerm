@@ -178,23 +178,7 @@ The release workflow (`.github/workflows/release.yml`) triggers on version tags 
 
 | ID | Severity | Location | Description |
 |----|----------|----------|-------------|
-| ROB-1 | High | `rdp.rs:555-573` | **RDP frame panic on untrusted input.** `extract_rect_rgba` indexes into `image.data()` without bounds checking. A malicious or buggy RDP server can crash the app with an index-out-of-bounds panic. Must validate `left + width <= image.width()` and `top + height <= image.height()`. |
-| ROB-2 | Medium | `commands.rs`, `known_hosts.rs` | **Blocking I/O on Tokio runtime.** Synchronous `std::fs` operations (`read_to_string`, `write`, `create_dir_all`) called from async functions block the executor thread. Should use `tokio::fs` or `spawn_blocking`. |
-| ROB-4 | Medium | `vnc.rs:167`, `rdp.rs:335` | **No TCP connect timeout.** `TcpStream::connect()` for VNC and RDP has no timeout. A firewalled port hangs for the OS TCP timeout (60-120 seconds) with no feedback to the user. |
-| ROB-5 | Medium | `ssh.rs` | **Passphrase-protected SSH keys unsupported.** `load_secret_key(key_path, None)` always passes `None` for the passphrase. Keys with passphrases fail with a confusing "Failed to load key" error instead of prompting. |
 | ROB-6 | Medium | `commands.rs` | **Fragile HOST_KEY_UNKNOWN error protocol.** The `HostKeyUnknown` variant serializes key info as a JSON string embedded in the error message. The frontend parses it by string prefix matching. A proper typed IPC response would be more reliable. |
-| ROB-8 | Low | `lib.rs:48` | **Uninformative panic message.** `.expect("error while running tauri application")` doesn't include the actual error. |
-| ROB-9 | Low | `vnc.rs:77-83` | **No failure event to frontend.** If the VNC proxy fails (timeout, server unreachable), the error is logged and the entry is auto-removed but no event is emitted to the frontend. The user sees no feedback. |
-
-### Frontend State & React Patterns
-
-| ID | Severity | Location | Description |
-|----|----------|----------|-------------|
-| FE-1 | Medium | `App.tsx` | **Nested state setter calls.** `setActiveConnectionId` is called inside the `setConnections` updater function. Calling one state setter inside another's updater is not a documented React pattern and may break in future React versions. Should use `useReducer` or compute both values together. |
-| FE-2 | Medium | `App.tsx` | **Ref in className never triggers re-render.** `isResizing.current` is used in a className expression, but ref mutations don't cause re-renders. The `resizing` CSS class (for cursor styling during drag) is never reactively applied. |
-| FE-3 | Medium | `App.tsx` | **`handleDisconnect` re-creates on every connection change.** Memoized with `[connections]` dependency, so its identity changes on every connection update, causing all tab components to re-render. Using a ref or `useReducer` would avoid this. |
-| FE-5 | Medium | `SshSessionForm.tsx` | **Form state ignores prop updates.** `useState` initializer runs only on first render. If `initial` prop changes without unmounting, stale data is shown. Currently masked by the navigation flow but is a latent bug. |
-| FE-6 | Medium | `SessionList.tsx` | **No duplicate connection guard.** Double-clicking Connect or rapid clicks can initiate multiple parallel connections to the same host. `handleConnect` doesn't check if a connection to that session already exists. |
 
 ### Performance
 

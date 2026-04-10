@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
+use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
@@ -11,6 +12,16 @@ use tokio::task::JoinHandle;
 
 /// Maximum number of concurrent VNC proxy connections allowed.
 const MAX_VNC_CONNECTIONS: usize = 16;
+
+/// Event name emitted when a VNC proxy connection fails (ROB-9).
+pub const VNC_FAILED_EVENT: &str = "vnc-failed";
+
+/// Payload for the `vnc-failed` Tauri event (ROB-9).
+#[derive(Clone, serde::Serialize)]
+pub struct VncFailedPayload {
+    pub connection_id: String,
+    pub reason: String,
+}
 
 /// Maximum time (in seconds) to wait for a WebSocket client to connect.
 const ACCEPT_TIMEOUT_SECS: u64 = 30;
@@ -46,6 +57,7 @@ impl VncConnectionManager {
     /// Returns the local WebSocket port the frontend should connect to.
     pub async fn start_proxy(
         &self,
+        app: &AppHandle,
         connection_id: &str,
         vnc_host: &str,
         vnc_port: u16,
@@ -71,6 +83,7 @@ impl VncConnectionManager {
         let vnc_addr = format!("{}:{}", vnc_host, vnc_port);
         let cid = connection_id.to_string();
         let proxies = self.proxies.clone();
+        let app = app.clone();
 
         // Spawn the listener task — accepts one connection then proxies.
         // The task auto-removes itself from the proxy map on completion.
@@ -78,6 +91,11 @@ impl VncConnectionManager {
             if let Err(e) = run_proxy(listener, &vnc_addr, &cid).await {
                 log::error!("[VNC proxy {}] connection error", cid);
                 log::debug!("[VNC proxy {}] error details: {}", cid, e);
+                // ROB-9: emit failure event so the frontend can show feedback
+                let _ = app.emit(VNC_FAILED_EVENT, VncFailedPayload {
+                    connection_id: cid.clone(),
+                    reason: e.to_string(),
+                });
             }
             // Auto-cleanup: remove this proxy entry when the task finishes
             proxies.lock().await.remove(&cid);
@@ -163,9 +181,17 @@ async fn run_proxy(
         .map_err(|_| VncError::WebSocket("[VNC proxy] WebSocket handshake timed out".to_string()))?
         .map_err(|e| VncError::WebSocket(e.to_string()))?;
 
-    // Connect to the actual VNC server
-    let vnc_tcp = TcpStream::connect(vnc_addr)
+    // ROB-4: Connect to the VNC server with a timeout so firewalled ports
+    // don't hang for the OS TCP timeout (60-120s).
+    let vnc_tcp = tokio::time::timeout(
+        Duration::from_secs(15),
+        TcpStream::connect(vnc_addr),
+    )
         .await
+        .map_err(|_| VncError::Io(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "[VNC] connection to server timed out after 15 seconds",
+        )))?
         .map_err(VncError::Io)?;
     let (mut vnc_reader, mut vnc_writer) = tokio::io::split(vnc_tcp);
 

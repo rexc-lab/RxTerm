@@ -5032,7 +5032,6 @@ dependencies = [
  "ironrdp-tls",
  "ironrdp-tokio",
  "log",
- "once_cell",
  "russh",
  "russh-keys",
  "serde",

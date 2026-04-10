@@ -61,9 +61,13 @@ export default function App() {
   } | null>(null);
   const [passwordInput, setPasswordInput] = useState("");
 
-  // ─── Sidebar resize ────────────────────────────────────────
+  // ─── Sidebar resize (FE-2: use state not ref for className) ────
   const [sidebarWidth, setSidebarWidth] = useState(260);
-  const isResizing = useRef(false);
+  const [isResizing, setIsResizing] = useState(false);
+
+  // FE-3: ref for connections so handleDisconnect never stale-captures
+  const connectionsRef = useRef(connections);
+  connectionsRef.current = connections;
 
   // ─── Settings popup ──────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false);
@@ -320,10 +324,26 @@ export default function App() {
     }
   }, [hostKeyPrompt, sessions, handleConnect]);
 
+  /**
+   * Remove a connection from state and update the active tab.
+   *
+   * FE-1: computes both `connections` and `activeConnectionId` together
+   * instead of nesting state setters.
+   */
+  const removeConnection = useCallback((connectionId: string) => {
+    setConnections((prev) => prev.filter((c) => c.id !== connectionId));
+    setActiveConnectionId((current) => {
+      if (current !== connectionId) return current;
+      // FE-3: read from ref to avoid stale closure over connections
+      const remaining = connectionsRef.current.filter((c) => c.id !== connectionId);
+      return remaining.length > 0 ? remaining[remaining.length - 1].id : null;
+    });
+  }, []);
+
   /** Disconnect a connection and remove its tab. */
   const handleDisconnect = useCallback(async (connectionId: string) => {
-    // Determine connection type to call the right disconnect API
-    const conn = connections.find((c) => c.id === connectionId);
+    // FE-3: read from ref so this callback doesn't depend on connections state
+    const conn = connectionsRef.current.find((c) => c.id === connectionId);
     try {
       if (conn?.protocol === "vnc") {
         await vncDisconnect(connectionId);
@@ -335,42 +355,24 @@ export default function App() {
     } catch {
       // Already disconnected
     }
-    setConnections((prev) => {
-      const next = prev.filter((c) => c.id !== connectionId);
-      setActiveConnectionId((current) => {
-        if (current === connectionId) {
-          return next.length > 0 ? next[next.length - 1].id : null;
-        }
-        return current;
-      });
-      return next;
-    });
-  }, [connections]);
+    removeConnection(connectionId);
+  }, [removeConnection]);
 
   /** Called when a terminal reports the connection was closed remotely. */
   const handleRemoteDisconnect = useCallback((connectionId: string) => {
-    setConnections((prev) => {
-      const next = prev.filter((c) => c.id !== connectionId);
-      setActiveConnectionId((current) => {
-        if (current === connectionId) {
-          return next.length > 0 ? next[next.length - 1].id : null;
-        }
-        return current;
-      });
-      return next;
-    });
-  }, []);
+    removeConnection(connectionId);
+  }, [removeConnection]);
 
   return (
     <div
-      className={`app-layout${isResizing.current ? ' resizing' : ''}`}
+      className={`app-layout${isResizing ? ' resizing' : ''}`}
       onMouseMove={(e) => {
-        if (!isResizing.current) return;
+        if (!isResizing) return;
         const newWidth = Math.max(160, Math.min(e.clientX, 600));
         setSidebarWidth(newWidth);
       }}
-      onMouseUp={() => { isResizing.current = false; }}
-      onMouseLeave={() => { isResizing.current = false; }}
+      onMouseUp={() => setIsResizing(false)}
+      onMouseLeave={() => setIsResizing(false)}
     >
       {/* ─── Left sidebar: host list ─── */}
       <div className="sidebar" style={{ width: sidebarWidth }}>
@@ -450,7 +452,7 @@ export default function App() {
       {/* ─── Resize handle ─── */}
       <div
         className="resize-handle"
-        onMouseDown={() => { isResizing.current = true; }}
+        onMouseDown={() => setIsResizing(true)}
       />
 
       {/* ─── Right main area: terminals ─── */}
