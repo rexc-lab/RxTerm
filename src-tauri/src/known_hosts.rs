@@ -1,6 +1,7 @@
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex as StdMutex;
 
 use russh_keys::key::PublicKey;
 use russh_keys::PublicKeyBase64;
@@ -28,8 +29,13 @@ pub enum HostKeyStatus {
 /// ```text
 /// [host]:port algorithm base64-key
 /// ```
+///
+/// All file operations are serialised through an internal mutex to prevent
+/// concurrent read-modify-write races (RES-7).
 pub struct KnownHostsStore {
     path: PathBuf,
+    /// Guards read-modify-write cycles against concurrent access.
+    file_lock: StdMutex<()>,
 }
 
 impl KnownHostsStore {
@@ -42,7 +48,17 @@ impl KnownHostsStore {
         }
         Ok(Self {
             path: dir.join("known_hosts"),
+            file_lock: StdMutex::new(()),
         })
+    }
+
+    /// Create a store backed by a specific file path (for testing).
+    #[cfg(test)]
+    pub fn with_path(path: PathBuf) -> Self {
+        Self {
+            path,
+            file_lock: StdMutex::new(()),
+        }
     }
 
     /// Check whether the given host key is known, unknown, or changed.
@@ -52,6 +68,7 @@ impl KnownHostsStore {
         let fingerprint = key.fingerprint();
         let entry_host = format_host(host, port);
 
+        let _guard = self.file_lock.lock().unwrap_or_else(|e| e.into_inner());
         let entries = self.load_entries();
         for entry in &entries {
             if entry.host == entry_host && entry.algorithm == algo {
@@ -72,6 +89,9 @@ impl KnownHostsStore {
     }
 
     /// Persist a host key as accepted.
+    ///
+    /// All inputs are sanitised to prevent newline/whitespace injection
+    /// into the known_hosts file (SEC-2).
     pub fn accept(
         &self,
         host: &str,
@@ -79,7 +99,21 @@ impl KnownHostsStore {
         key_data: &str,
         algorithm: &str,
     ) -> Result<(), std::io::Error> {
+        // SEC-2: reject inputs containing whitespace or newlines that could
+        // inject additional entries into the known_hosts file.
+        if contains_whitespace_or_newline(host)
+            || contains_whitespace_or_newline(key_data)
+            || contains_whitespace_or_newline(algorithm)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "host, key_data, and algorithm must not contain whitespace or newlines",
+            ));
+        }
+
         let entry_host = format_host(host, port);
+
+        let _guard = self.file_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut entries = self.load_entries();
 
         // Replace existing entry for same host+algo, or append.
@@ -112,6 +146,11 @@ impl KnownHostsStore {
         let content: String = entries.iter().map(|e| format!("{}\n", e)).collect();
         fs::write(&self.path, content)
     }
+}
+
+/// Returns true if `s` contains any whitespace or newline characters.
+fn contains_whitespace_or_newline(s: &str) -> bool {
+    s.chars().any(|c| c.is_whitespace())
 }
 
 // ── Entry type ────────────────────────────────────────────────────
@@ -149,14 +188,6 @@ fn key_algorithm_name(key: &PublicKey) -> String {
     key.name().to_string()
 }
 
-/// Produce a fingerprint string for display to the user.
-/// Uses russh-keys' built-in SHA-256 fingerprint.
-fn _key_fingerprint(key: &PublicKey) -> String {
-    let algo = key.name();
-    let fp = key.fingerprint();
-    format!("{} SHA256:{}", algo, fp)
-}
-
 /// Format the canonical host key for storage: `[host]:port`
 fn format_host(host: &str, port: u16) -> String {
     format!("[{}]:{}", host, port)
@@ -170,4 +201,143 @@ pub fn key_algorithm(key: &PublicKey) -> String {
 /// Encode a public key to base64 for transport/storage (public API for commands).
 pub fn key_to_base64(key: &PublicKey) -> String {
     key.public_key_base64()
+}
+
+// ── Tests ─────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: create a KnownHostsStore backed by a temporary file.
+    fn temp_store() -> (KnownHostsStore, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let path = dir.path().join("known_hosts");
+        let store = KnownHostsStore::with_path(path);
+        (store, dir)
+    }
+
+    // ── SEC-2: Known-hosts injection ─────────────────────────────
+
+    #[test]
+    fn accept_rejects_newline_in_algorithm() {
+        let (store, _dir) = temp_store();
+        let result = store.accept(
+            "example.com",
+            22,
+            "AAAAB3NzaC1yc2EAAAA",
+            "ssh-rsa\n[evil.host]:22 ssh-ed25519 AAAA",
+        );
+        assert!(result.is_err(), "should reject algorithm with newline");
+    }
+
+    #[test]
+    fn accept_rejects_newline_in_key_data() {
+        let (store, _dir) = temp_store();
+        let result = store.accept(
+            "example.com",
+            22,
+            "AAAAB3Nz\n[evil]:22 ssh-rsa BBBB",
+            "ssh-rsa",
+        );
+        assert!(result.is_err(), "should reject key_data with newline");
+    }
+
+    #[test]
+    fn accept_rejects_whitespace_in_algorithm() {
+        let (store, _dir) = temp_store();
+        let result = store.accept("example.com", 22, "AAAA", "ssh rsa");
+        assert!(result.is_err(), "should reject algorithm with space");
+    }
+
+    #[test]
+    fn accept_rejects_whitespace_in_host() {
+        let (store, _dir) = temp_store();
+        let result = store.accept("evil host", 22, "AAAA", "ssh-rsa");
+        assert!(result.is_err(), "should reject host with space");
+    }
+
+    #[test]
+    fn accept_valid_entry_persists_correctly() {
+        let (store, _dir) = temp_store();
+        store
+            .accept("example.com", 22, "AAAAB3NzaC1yc2EAAAA", "ssh-rsa")
+            .expect("valid accept should succeed");
+
+        let entries = store.load_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].host, "[example.com]:22");
+        assert_eq!(entries[0].algorithm, "ssh-rsa");
+        assert_eq!(entries[0].key_data, "AAAAB3NzaC1yc2EAAAA");
+    }
+
+    #[test]
+    fn accept_replaces_existing_entry_for_same_host_algo() {
+        let (store, _dir) = temp_store();
+        store
+            .accept("example.com", 22, "OLD_KEY", "ssh-rsa")
+            .unwrap();
+        store
+            .accept("example.com", 22, "NEW_KEY", "ssh-rsa")
+            .unwrap();
+
+        let entries = store.load_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].key_data, "NEW_KEY");
+    }
+
+    #[test]
+    fn injection_does_not_create_extra_entries() {
+        let (store, _dir) = temp_store();
+        // First, add a legitimate entry
+        store.accept("legit.host", 22, "LEGIT_KEY", "ssh-rsa").unwrap();
+
+        // Try to inject via algorithm field
+        let result = store.accept(
+            "target.host",
+            22,
+            "AAAA",
+            "ssh-rsa\n[evil.host]:22 ssh-ed25519 INJECTED",
+        );
+        assert!(result.is_err());
+
+        // Verify only the legitimate entry exists
+        let entries = store.load_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].host, "[legit.host]:22");
+    }
+
+    // ── RES-7: Concurrent access safety ──────────────────────────
+
+    #[test]
+    fn concurrent_accepts_do_not_lose_entries() {
+        let (store, _dir) = temp_store();
+        let store = std::sync::Arc::new(store);
+
+        let mut handles = vec![];
+        for i in 0..10 {
+            let store = store.clone();
+            let handle = std::thread::spawn(move || {
+                store
+                    .accept(
+                        &format!("host-{}.example.com", i),
+                        22,
+                        &format!("KEY_{}", i),
+                        "ssh-rsa",
+                    )
+                    .expect("accept should succeed");
+            });
+            handles.push(handle);
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let entries = store.load_entries();
+        assert_eq!(entries.len(), 10, "all 10 entries should be present");
+    }
+
+    // ── DC-1: Removed dead code _key_fingerprint ─────────────────
+    // The unused function has been removed. No test needed.
 }

@@ -5032,6 +5032,7 @@ dependencies = [
  "ironrdp-tls",
  "ironrdp-tokio",
  "log",
+ "once_cell",
  "russh",
  "russh-keys",
  "serde",
@@ -5040,11 +5041,13 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-updater",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-native-tls",
  "tokio-tungstenite",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

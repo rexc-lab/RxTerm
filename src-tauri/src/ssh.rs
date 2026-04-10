@@ -10,7 +10,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 
-use crate::known_hosts::{HostKeyStatus, KnownHostsStore};
+use crate::known_hosts::{self, HostKeyStatus, KnownHostsStore};
 
 /// Payload emitted to the frontend when SSH data arrives.
 #[derive(Clone, serde::Serialize)]
@@ -27,6 +27,14 @@ struct SshClosedEvent {
 /// Control messages sent from the main thread to the channel-owning reader task.
 enum ControlMsg {
     Resize { cols: u32, rows: u32 },
+}
+
+/// Host key information captured during connection (SEC-3).
+#[derive(Debug, Clone)]
+pub struct CapturedHostKeyInfo {
+    pub fingerprint: String,
+    pub key_data: String,
+    pub algorithm: String,
 }
 
 /// A live SSH connection with its IO handles.
@@ -66,10 +74,15 @@ impl SshConnectionManager {
         private_key_path: Option<&str>,
     ) -> Result<(), ConnectError> {
         let known_hosts = KnownHostsStore::new().map_err(ConnectError::Io)?;
+
+        // SEC-3: The handler captures host key info from the *first* connection
+        // attempt so we never need a second connection to retrieve it.
+        let captured_key = Arc::new(tokio::sync::Mutex::new(None::<CapturedHostKeyInfo>));
         let handler = ClientHandler {
             known_hosts,
             host: host.to_string(),
             port,
+            captured_key: captured_key.clone(),
         };
 
         let config = Arc::new(client::Config {
@@ -78,9 +91,18 @@ impl SshConnectionManager {
         });
 
         let addr = format!("{}:{}", host, port);
-        let mut session = client::connect(config, &addr, handler)
-            .await
-            .map_err(ConnectError::Ssh)?;
+        let mut session = match client::connect(config, &addr, handler).await {
+            Ok(s) => s,
+            Err(russh::Error::UnknownKey) => {
+                // SEC-3: retrieve key info captured during this same attempt
+                let info = captured_key.lock().await;
+                if let Some(key_info) = info.as_ref() {
+                    return Err(ConnectError::HostKeyUnknown(key_info.clone()));
+                }
+                return Err(ConnectError::Ssh(russh::Error::UnknownKey));
+            }
+            Err(e) => return Err(ConnectError::Ssh(e)),
+        };
 
         // Authenticate
         let authenticated = if let Some(key_path) = private_key_path {
@@ -129,14 +151,17 @@ impl SshConnectionManager {
         // Create control channel for resize commands
         let (control_tx, control_rx) = mpsc::channel::<ControlMsg>(16);
 
-        // Spawn reader task — owns the Channel
+        // RES-1: pass a clone of the connections map so the reader task
+        // can auto-remove its entry when the channel closes.
         let cid = connection_id.to_string();
         let app_clone = app.clone();
+        let connections_clone = self.connections.clone();
         let reader_task = tokio::spawn(channel_reader_task(
             channel,
             control_rx,
             cid.clone(),
             app_clone,
+            connections_clone,
         ));
 
         let conn = SshConnection {
@@ -154,35 +179,43 @@ impl SshConnectionManager {
     }
 
     /// Send raw bytes (user keystrokes) to an active SSH channel.
+    ///
+    /// RES-5: The connections mutex is released before performing async I/O
+    /// so that one slow write doesn't block all other SSH operations.
     pub async fn send(&self, connection_id: &str, data: &[u8]) -> Result<(), ConnectError> {
-        let conns = self.connections.lock().await;
-        let conn = conns
-            .get(connection_id)
-            .ok_or_else(|| ConnectError::NotFound(connection_id.to_string()))?;
-        let mut writer = conn.writer.lock().await;
-        writer
-            .write_all(data)
-            .await
-            .map_err(|e| ConnectError::Io(e))?;
-        writer.flush().await.map_err(|e| ConnectError::Io(e))?;
+        let writer = {
+            let conns = self.connections.lock().await;
+            let conn = conns
+                .get(connection_id)
+                .ok_or_else(|| ConnectError::NotFound(connection_id.to_string()))?;
+            conn.writer.clone()
+        };
+        // Lock dropped — now write without holding the connections mutex.
+        let mut w = writer.lock().await;
+        w.write_all(data).await.map_err(ConnectError::Io)?;
+        w.flush().await.map_err(ConnectError::Io)?;
         Ok(())
     }
 
     /// Notify the remote side of a terminal resize.
+    ///
+    /// RES-5: The connections mutex is released before the async send.
     pub async fn resize(
         &self,
         connection_id: &str,
         cols: u32,
         rows: u32,
     ) -> Result<(), ConnectError> {
-        let conns = self.connections.lock().await;
-        let conn = conns
-            .get(connection_id)
-            .ok_or_else(|| ConnectError::NotFound(connection_id.to_string()))?;
-        conn.control_tx
-            .send(ControlMsg::Resize { cols, rows })
+        let tx = {
+            let conns = self.connections.lock().await;
+            let conn = conns
+                .get(connection_id)
+                .ok_or_else(|| ConnectError::NotFound(connection_id.to_string()))?;
+            conn.control_tx.clone()
+        };
+        tx.send(ControlMsg::Resize { cols, rows })
             .await
-            .map_err(|_| ConnectError::Auth("Channel reader task ended".to_string()))?;
+            .map_err(|_| ConnectError::ChannelClosed("Channel reader task ended".to_string()))?;
         Ok(())
     }
 
@@ -201,11 +234,15 @@ impl SshConnectionManager {
 }
 
 /// Background task that reads SSH channel output and handles control messages.
+///
+/// RES-1: On exit (EOF, close, connection lost), the task auto-removes its
+/// entry from the connections HashMap so dead connections don't accumulate.
 async fn channel_reader_task(
     mut channel: Channel<Msg>,
     mut control_rx: mpsc::Receiver<ControlMsg>,
     connection_id: String,
     app: AppHandle,
+    connections: Arc<Mutex<HashMap<String, SshConnection>>>,
 ) {
     let event_name = format!("ssh-output-{}", connection_id);
     let close_event = format!("ssh-closed-{}", connection_id);
@@ -257,13 +294,21 @@ async fn channel_reader_task(
             }
         }
     }
+
+    // RES-1: auto-remove this connection from the HashMap
+    connections.lock().await.remove(&connection_id);
 }
 
 /// The russh client handler — validates server host keys.
+///
+/// SEC-3: captures key info from the first connection attempt so a
+/// second connection is never needed.
 pub struct ClientHandler {
     known_hosts: KnownHostsStore,
     host: String,
     port: u16,
+    /// Stores the server key info on rejection so the caller can surface it.
+    captured_key: Arc<tokio::sync::Mutex<Option<CapturedHostKeyInfo>>>,
 }
 
 #[async_trait]
@@ -274,12 +319,30 @@ impl client::Handler for ClientHandler {
         &mut self,
         server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
+        // Always capture key info so it is available if we reject.
+        let algorithm = known_hosts::key_algorithm(server_public_key);
+        let key_data = known_hosts::key_to_base64(server_public_key);
+        let fingerprint = format!(
+            "{} {}",
+            algorithm,
+            &key_data[..32.min(key_data.len())]
+        );
+
         match self
             .known_hosts
             .check(&self.host, self.port, server_public_key)
         {
             HostKeyStatus::Known => Ok(true),
-            HostKeyStatus::Unknown { .. } | HostKeyStatus::Changed { .. } => Ok(false),
+            HostKeyStatus::Unknown { .. } | HostKeyStatus::Changed { .. } => {
+                // SEC-3: store key info for the caller before rejecting
+                let mut captured = self.captured_key.lock().await;
+                *captured = Some(CapturedHostKeyInfo {
+                    fingerprint,
+                    key_data,
+                    algorithm,
+                });
+                Ok(false)
+            }
         }
     }
 }
@@ -295,6 +358,10 @@ pub enum ConnectError {
     Auth(String),
     #[error("Connection not found: {0}")]
     NotFound(String),
+    #[error("Channel closed: {0}")]
+    ChannelClosed(String),
+    #[error("Host key unknown")]
+    HostKeyUnknown(CapturedHostKeyInfo),
 }
 
 impl serde::Serialize for ConnectError {
