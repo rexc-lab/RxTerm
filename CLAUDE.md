@@ -172,29 +172,6 @@ Sessions are stored as JSON in `%APPDATA%/RxTerm/sessions.json` (via `dirs::data
 
 The release workflow (`.github/workflows/release.yml`) triggers on version tags (`v*`) and builds for Windows, macOS (universal binary), and Linux. It uses `tauri-apps/tauri-action` and generates SHA-256 checksums. Code signing is scaffolded but currently disabled.
 
-## Known Issues
-
-### Robustness & Error Handling
-
-| ID | Severity | Location | Description |
-|----|----------|----------|-------------|
-| ROB-6 | Medium | `commands.rs` | **Fragile HOST_KEY_UNKNOWN error protocol.** The `HostKeyUnknown` variant serializes key info as a JSON string embedded in the error message. The frontend parses it by string prefix matching. A proper typed IPC response would be more reliable. |
-
-### Performance
-
-| ID | Severity | Location | Description |
-|----|----------|----------|-------------|
-| PERF-1 | Medium | `RdpPane.tsx` | **Inefficient base64 frame decoding.** `atob()` + character-by-character loop to build `Uint8Array`. For a full 1920x1080 RGBA frame (~8MB), this is a significant CPU bottleneck. |
-| PERF-2 | Medium | `rdp.rs` | **Large frame payloads over Tauri events.** Each RDP graphics update is base64-encoded and sent as a Tauri event. Full-screen updates can be ~5.5MB base64, causing memory pressure and IPC overhead. |
-
-### Accessibility & UX
-
-| ID | Severity | Location | Description |
-|----|----------|----------|-------------|
-| UX-1 | Medium | `SshSessionForm.tsx` | **Duplicate HTML `id` attributes.** `id="password"` and `id="username"` are reused across SSH, VNC, and RDP input groups. `<label htmlFor>` associations may break in assistive technology during protocol switches. |
-| UX-2 | Low | `TerminalTabs.tsx` | **Tabs not keyboard-accessible.** Tab elements are `<div>` with `onClick` but no `role`, `tabIndex`, or keyboard handlers. Cannot be reached or activated via keyboard. |
-| UX-3 | Low | `HostKeyDialog.tsx` | **Dialog does not trap focus.** No `role="dialog"`, `aria-modal`, or focus trapping. Keyboard users can Tab past the dialog. Escape key does not dismiss it. |
-| UX-4 | Low | `SessionList.tsx`, `App.tsx` | **No delete confirmation.** Session deletion is immediate on single click with no confirmation dialog. Prone to accidental data loss. |
 
 ## Things to Avoid
 
