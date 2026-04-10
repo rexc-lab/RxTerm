@@ -466,21 +466,34 @@ async fn run_session(
                             if rect_w == 0 || rect_h == 0 {
                                 continue;
                             }
-                            let rgba = match extract_rect_rgba(&image, rect.left, rect.top, rect_w, rect_h) {
-                                Some(data) => data,
-                                None => continue, // ROB-1: skip malformed rects
-                            };
-                            let payload = RdpFramePayload {
-                                connection_id: connection_id.to_string(),
-                                full_width: full_w,
-                                full_height: full_h,
-                                x: rect.left,
-                                y: rect.top,
-                                width: rect_w,
-                                height: rect_h,
-                                data: base64::engine::general_purpose::STANDARD.encode(&rgba),
-                            };
-                            let _ = app.emit(RDP_FRAME_EVENT, payload);
+                            // PERF-2: split large rectangles into tiles of max 256x256
+                            // to avoid multi-megabyte base64 payloads in a single event.
+                            const TILE_SIZE: u16 = 256;
+                            let mut ty = rect.top;
+                            while ty < rect.top + rect_h {
+                                let th = TILE_SIZE.min(rect.top + rect_h - ty);
+                                let mut tx = rect.left;
+                                while tx < rect.left + rect_w {
+                                    let tw = TILE_SIZE.min(rect.left + rect_w - tx);
+                                    let rgba = match extract_rect_rgba(&image, tx, ty, tw, th) {
+                                        Some(data) => data,
+                                        None => { tx += TILE_SIZE; continue; }
+                                    };
+                                    let payload = RdpFramePayload {
+                                        connection_id: connection_id.to_string(),
+                                        full_width: full_w,
+                                        full_height: full_h,
+                                        x: tx,
+                                        y: ty,
+                                        width: tw,
+                                        height: th,
+                                        data: base64::engine::general_purpose::STANDARD.encode(&rgba),
+                                    };
+                                    let _ = app.emit(RDP_FRAME_EVENT, payload);
+                                    tx += TILE_SIZE;
+                                }
+                                ty += TILE_SIZE;
+                            }
                         }
                         ActiveStageOutput::Terminate(reason) => {
                             break 'session_loop reason.to_string();

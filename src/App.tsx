@@ -11,7 +11,6 @@ import type {
   SshSessionDraft,
   Connection,
   HostKeyPrompt,
-  HostKeyInfo,
 } from "./types";
 import {
   getSessions,
@@ -174,18 +173,6 @@ export default function App() {
 
   // ─── SSH connection handlers ─────────────────────────────────
 
-  /** Parse a HOST_KEY_UNKNOWN error message into structured data. */
-  const parseHostKeyError = (errMsg: string): HostKeyInfo | null => {
-    const prefix = "HOST_KEY_UNKNOWN:";
-    const idx = errMsg.indexOf(prefix);
-    if (idx === -1) return null;
-    try {
-      return JSON.parse(errMsg.slice(idx + prefix.length));
-    } catch {
-      return null;
-    }
-  };
-
   /** Attempt to connect to a session (SSH, VNC, or RDP). */
   const handleConnect = useCallback(
     async (session: SshSession, overridePassword?: string) => {
@@ -275,29 +262,31 @@ export default function App() {
         setStatus({ type: "success", text: `Connecting to ${session.label}…` });
         const result = await sshConnect(session.id, pw);
 
-        const conn: Connection = {
-          id: result.connection_id,
-          sessionId: session.id,
-          label: session.label,
-          protocol: "ssh",
-        };
-        setConnections((prev) => [...prev, conn]);
-        setActiveConnectionId(result.connection_id);
-        setStatus({ type: "success", text: `Connected to ${session.label}` });
-      } catch (err: unknown) {
-        const msg = String(err);
-        const hostKeyInfo = parseHostKeyError(msg);
-        if (hostKeyInfo) {
+        // ROB-6: typed response — check status instead of parsing error strings
+        if (result.status === "host_key_unknown" && result.host_key) {
           setHostKeyPrompt({
             host: session.host,
             port: session.port,
-            info: hostKeyInfo,
+            info: result.host_key,
             sessionId: session.id,
             password: overridePassword ?? session.password,
           });
-        } else {
-          setStatus({ type: "error", text: msg });
+          return;
         }
+
+        if (result.status === "connected" && result.connection_id) {
+          const conn: Connection = {
+            id: result.connection_id,
+            sessionId: session.id,
+            label: session.label,
+            protocol: "ssh",
+          };
+          setConnections((prev) => [...prev, conn]);
+          setActiveConnectionId(result.connection_id);
+          setStatus({ type: "success", text: `Connected to ${session.label}` });
+        }
+      } catch (err: unknown) {
+        setStatus({ type: "error", text: String(err) });
       }
     },
     [],

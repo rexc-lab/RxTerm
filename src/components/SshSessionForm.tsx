@@ -108,6 +108,8 @@ export default function SshSessionForm({
 
   const isSsh = draft.protocol === "ssh";
   const isRdp = draft.protocol === "rdp";
+  // UX-1: prefix IDs with protocol to avoid duplicate HTML id attributes
+  const prefix = draft.protocol;
 
   return (
     <form onSubmit={handleSubmit}>
@@ -172,9 +174,9 @@ export default function SshSessionForm({
         <>
           {/* Username */}
           <div className="form-group">
-            <label htmlFor="username">Username</label>
+            <label htmlFor={`${prefix}-username`}>Username</label>
             <input
-              id="username"
+              id={`${prefix}-username`}
               type="text"
               placeholder="root"
               value={draft.username}
@@ -201,9 +203,9 @@ export default function SshSessionForm({
           {/* Password (conditional) */}
           {draft.auth_method === "password" && (
             <div className="form-group">
-              <label htmlFor="password">Password</label>
+              <label htmlFor={`${prefix}-password`}>Password</label>
               <input
-                id="password"
+                id={`${prefix}-password`}
                 type="password"
                 placeholder="••••••••"
                 value={draft.password ?? ""}
@@ -237,9 +239,9 @@ export default function SshSessionForm({
       {/* VNC password (optional) */}
       {!isSsh && !isRdp && (
         <div className="form-group">
-          <label htmlFor="password">VNC Password (optional)</label>
+          <label htmlFor={`${prefix}-password`}>VNC Password (optional)</label>
           <input
-            id="password"
+            id={`${prefix}-password`}
             type="password"
             placeholder="••••••••"
             value={draft.password ?? ""}
@@ -253,9 +255,9 @@ export default function SshSessionForm({
         <>
           {/* Username */}
           <div className="form-group">
-            <label htmlFor="username">Username</label>
+            <label htmlFor={`${prefix}-username`}>Username</label>
             <input
-              id="username"
+              id={`${prefix}-username`}
               type="text"
               placeholder="Administrator"
               value={draft.username}
@@ -280,9 +282,9 @@ export default function SshSessionForm({
 
           {/* Password */}
           <div className="form-group">
-            <label htmlFor="password">Password</label>
+            <label htmlFor={`${prefix}-password`}>Password</label>
             <input
-              id="password"
+              id={`${prefix}-password`}
               type="password"
               placeholder="••••••••"
               value={draft.password ?? ""}

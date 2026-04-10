@@ -33,12 +33,23 @@ export async function importSessions(json: string): Promise<SshSession[]> {
 
 // ─── SSH connection commands ────────────────────────────────────────────────
 
+/** ROB-6: typed result from ssh_connect — no more parsing error strings. */
+export interface SshConnectResponse {
+  status: "connected" | "host_key_unknown";
+  connection_id?: string;
+  host_key?: {
+    fingerprint: string;
+    key_data: string;
+    algorithm: string;
+  };
+}
+
 /** Initiate an SSH connection to the given session. */
 export async function sshConnect(
   sessionId: string,
   password?: string,
-): Promise<{ connection_id: string }> {
-  return invoke<{ connection_id: string }>("ssh_connect", {
+): Promise<SshConnectResponse> {
+  return invoke<SshConnectResponse>("ssh_connect", {
     sessionId,
     password: password ?? null,
   });

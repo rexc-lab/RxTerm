@@ -26,8 +26,6 @@ pub enum AppError {
     NotFound(String),
     #[error("Validation error: {0}")]
     Validation(String),
-    #[error("HOST_KEY_UNKNOWN:{}", serde_json::to_string(.0).unwrap_or_default())]
-    HostKeyUnknown(HostKeyInfo),
 }
 
 // Tauri requires command errors to be serializable.
@@ -172,18 +170,27 @@ pub async fn import_sessions(json: String) -> Result<Vec<SshSession>, AppError> 
 
 // ─── SSH connection commands ────────────────────────────────────────────────
 
-/// Response from a successful SSH connection attempt.
+/// ROB-6: Typed SSH connect result that uses a discriminant field instead of
+/// encoding host key info inside an error string.
+///
+/// The frontend checks `result.status`:
+/// - `"connected"` → connection established, `connection_id` is set
+/// - `"host_key_unknown"` → key needs approval, `host_key` is set
 #[derive(serde::Serialize)]
 pub struct SshConnectResult {
-    connection_id: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host_key: Option<HostKeyInfo>,
 }
 
-/// Response when the host key is not yet trusted.
-#[derive(Debug, serde::Serialize)]
+/// Host key information returned when the server key is not yet trusted.
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct HostKeyInfo {
-    fingerprint: String,
-    key_data: String,
-    algorithm: String,
+    pub fingerprint: String,
+    pub key_data: String,
+    pub algorithm: String,
 }
 
 /// Initiate an SSH connection to the server specified by `session_id`.
@@ -236,14 +243,22 @@ pub async fn ssh_connect(
         )
         .await
     {
-        Ok(()) => Ok(SshConnectResult { connection_id }),
+        Ok(()) => Ok(SshConnectResult {
+            status: "connected".to_string(),
+            connection_id: Some(connection_id),
+            host_key: None,
+        }),
         Err(crate::ssh::ConnectError::HostKeyUnknown(info)) => {
-            // SEC-3: Key info captured from the first connection attempt
-            Err(AppError::HostKeyUnknown(HostKeyInfo {
-                fingerprint: info.fingerprint,
-                key_data: info.key_data,
-                algorithm: info.algorithm,
-            }))
+            // ROB-6: return structured data instead of embedding JSON in error string
+            Ok(SshConnectResult {
+                status: "host_key_unknown".to_string(),
+                connection_id: None,
+                host_key: Some(HostKeyInfo {
+                    fingerprint: info.fingerprint,
+                    key_data: info.key_data,
+                    algorithm: info.algorithm,
+                }),
+            })
         }
         Err(e) => Err(AppError::Ssh(e.to_string())),
     }

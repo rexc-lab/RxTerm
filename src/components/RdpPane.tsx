@@ -102,12 +102,9 @@ export default function RdpPane({ connectionId, onDisconnected }: RdpPaneProps) 
     const ctx = ctxRef.current;
     if (!ctx) return;
 
-    // Decode base64 → Uint8Array
+    // PERF-1 fix: use Uint8Array.from for efficient base64 → binary conversion
     const raw = atob(payload.data);
-    const bytes = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) {
-      bytes[i] = raw.charCodeAt(i);
-    }
+    const bytes = Uint8Array.from(raw, (c) => c.charCodeAt(0));
 
     // Create ImageData and paint the dirty rect
     const imageData = new ImageData(

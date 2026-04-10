@@ -69,7 +69,12 @@ export default function SessionList({
               {/* FE-6: disable connect if already connected to prevent duplicates */}
               <button onClick={() => onConnect(s)} title={isConnected ? "Already connected" : "Connect"} disabled={isConnected}>&#x25B6;</button>
               <button onClick={() => onEdit(s)} title="Edit">&#x270E;</button>
-              <button className="btn-delete" onClick={() => onDelete(s.id)} title="Delete">&#x2715;</button>
+              {/* UX-4: confirm before deleting to prevent accidental data loss */}
+              <button className="btn-delete" onClick={() => {
+                if (window.confirm(`Delete "${s.label}"? This cannot be undone.`)) {
+                  onDelete(s.id);
+                }
+              }} title="Delete">&#x2715;</button>
             </div>
           </div>
         );
