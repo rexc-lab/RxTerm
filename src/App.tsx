@@ -199,9 +199,23 @@ export default function App() {
             label: session.label,
             protocol: "vnc",
             wsPort: result.ws_port,
+            // SEC-5: password is passed to VncPane once; cleared from
+            // state after a short delay so it doesn't persist in the
+            // React component tree.
             vncPassword: overridePassword ?? session.password,
           };
           setConnections((prev) => [...prev, conn]);
+          // SEC-5: clear the password from connection state after VncPane
+          // has had a chance to read it on its first render.
+          setTimeout(() => {
+            setConnections((prev) =>
+              prev.map((c) =>
+                c.id === result.connection_id
+                  ? { ...c, vncPassword: undefined }
+                  : c,
+              ),
+            );
+          }, 1000);
           setActiveConnectionId(result.connection_id);
           setStatus({ type: "success", text: `Connected to ${session.label}` });
         } catch (err: unknown) {

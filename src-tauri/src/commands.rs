@@ -1,11 +1,13 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex as StdMutex;
 
+use once_cell::sync::Lazy;
 use tauri::{AppHandle, State};
 
-use crate::known_hosts::{self, KnownHostsStore};
+use crate::known_hosts::KnownHostsStore;
 use crate::rdp::{RdpConnectionManager, RdpKeyEvent, RdpMouseEvent};
-use crate::session::{Protocol, SshSession};
+use crate::session::{self, Protocol, SshSession};
 use crate::ssh::SshConnectionManager;
 use crate::vnc::VncConnectionManager;
 
@@ -24,6 +26,8 @@ pub enum AppError {
     Rdp(String),
     #[error("Not found: {0}")]
     NotFound(String),
+    #[error("Validation error: {0}")]
+    Validation(String),
     #[error("HOST_KEY_UNKNOWN:{}", serde_json::to_string(.0).unwrap_or_default())]
     HostKeyUnknown(HostKeyInfo),
 }
@@ -38,12 +42,21 @@ impl serde::Serialize for AppError {
     }
 }
 
+/// Global mutex that serialises all read-modify-write operations on
+/// `sessions.json`, preventing concurrent calls from losing updates (RES-4).
+static SESSIONS_FILE_LOCK: Lazy<StdMutex<()>> = Lazy::new(|| StdMutex::new(()));
+
 /// Returns the directory used to persist session data.
 ///
 /// On Windows this resolves to `%APPDATA%\RxTerm\`.
 /// The directory is created on first access if it does not exist.
 fn data_dir() -> Result<PathBuf, AppError> {
-    let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+    let base = dirs::data_dir().ok_or_else(|| {
+        AppError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "could not determine platform data directory",
+        ))
+    })?;
     let dir = base.join("RxTerm");
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
@@ -61,6 +74,7 @@ fn sessions_file() -> Result<PathBuf, AppError> {
 /// Returns an empty list if the file does not yet exist.
 #[tauri::command]
 pub async fn get_sessions() -> Result<Vec<SshSession>, AppError> {
+    let _guard = SESSIONS_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let path = sessions_file()?;
     if !path.exists() {
         return Ok(Vec::new());
@@ -70,13 +84,37 @@ pub async fn get_sessions() -> Result<Vec<SshSession>, AppError> {
     Ok(sessions)
 }
 
+/// Internal helper: read sessions while the lock is already held.
+fn read_sessions_locked() -> Result<Vec<SshSession>, AppError> {
+    let path = sessions_file()?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let data = fs::read_to_string(&path)?;
+    let sessions: Vec<SshSession> = serde_json::from_str(&data)?;
+    Ok(sessions)
+}
+
+/// Internal helper: write sessions while the lock is already held.
+fn write_sessions_locked(sessions: &[SshSession]) -> Result<(), AppError> {
+    let path = sessions_file()?;
+    let json = serde_json::to_string_pretty(sessions)?;
+    fs::write(&path, json)?;
+    Ok(())
+}
+
 /// Save a new or updated SSH session.
 ///
 /// If a session with the same `id` already exists it is replaced;
 /// otherwise the new session is appended.
 #[tauri::command]
 pub async fn save_session(session: SshSession) -> Result<Vec<SshSession>, AppError> {
-    let mut sessions = get_sessions().await?;
+    // SEC-7: validate before persisting
+    session::validate_session(&session)
+        .map_err(|e| AppError::Validation(e.to_string()))?;
+
+    let _guard = SESSIONS_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut sessions = read_sessions_locked()?;
 
     if let Some(pos) = sessions.iter().position(|s| s.id == session.id) {
         sessions[pos] = session;
@@ -84,28 +122,26 @@ pub async fn save_session(session: SshSession) -> Result<Vec<SshSession>, AppErr
         sessions.push(session);
     }
 
-    let path = sessions_file()?;
-    let json = serde_json::to_string_pretty(&sessions)?;
-    fs::write(&path, json)?;
+    write_sessions_locked(&sessions)?;
     Ok(sessions)
 }
 
 /// Delete an SSH session by its `id`.
 #[tauri::command]
 pub async fn delete_session(id: String) -> Result<Vec<SshSession>, AppError> {
-    let mut sessions = get_sessions().await?;
+    let _guard = SESSIONS_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut sessions = read_sessions_locked()?;
     sessions.retain(|s| s.id != id);
 
-    let path = sessions_file()?;
-    let json = serde_json::to_string_pretty(&sessions)?;
-    fs::write(&path, json)?;
+    write_sessions_locked(&sessions)?;
     Ok(sessions)
 }
 
 /// Export all sessions to a JSON string (for file-save dialog on the frontend).
 #[tauri::command]
 pub async fn export_sessions() -> Result<String, AppError> {
-    let sessions = get_sessions().await?;
+    let _guard = SESSIONS_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let sessions = read_sessions_locked()?;
     let json = serde_json::to_string_pretty(&sessions)?;
     Ok(json)
 }
@@ -116,7 +152,15 @@ pub async fn export_sessions() -> Result<String, AppError> {
 #[tauri::command]
 pub async fn import_sessions(json: String) -> Result<Vec<SshSession>, AppError> {
     let imported: Vec<SshSession> = serde_json::from_str(&json)?;
-    let mut sessions = get_sessions().await?;
+
+    // SEC-7: validate every imported session
+    for s in &imported {
+        session::validate_session(s)
+            .map_err(|e| AppError::Validation(format!("session '{}': {}", s.id, e)))?;
+    }
+
+    let _guard = SESSIONS_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut sessions = read_sessions_locked()?;
 
     for incoming in imported {
         if let Some(pos) = sessions.iter().position(|s| s.id == incoming.id) {
@@ -126,9 +170,7 @@ pub async fn import_sessions(json: String) -> Result<Vec<SshSession>, AppError> 
         }
     }
 
-    let path = sessions_file()?;
-    let out = serde_json::to_string_pretty(&sessions)?;
-    fs::write(&path, out)?;
+    write_sessions_locked(&sessions)?;
     Ok(sessions)
 }
 
@@ -169,9 +211,13 @@ pub async fn ssh_connect(
         .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?
         .clone();
 
-    // Pre-check host key before connecting
-    // We need to attempt connection to get the server key; if rejected,
-    // we'll detect it via the connection error and surface the key info.
+    // SEC-4: validate SSH host before connecting (consistent with VNC/RDP)
+    if !session::is_valid_host(&session.host) {
+        return Err(AppError::Validation(format!(
+            "Invalid SSH host: {}",
+            session.host
+        )));
+    }
 
     let connection_id = uuid::Uuid::new_v4().to_string();
 
@@ -195,77 +241,15 @@ pub async fn ssh_connect(
         .await
     {
         Ok(()) => Ok(SshConnectResult { connection_id }),
-        Err(crate::ssh::ConnectError::Ssh(russh::Error::UnknownKey)) => {
-            // Host key was rejected by our handler — get the key info for the prompt
-            let host_key_info = get_host_key_info(&session.host, session.port).await?;
-            Err(AppError::HostKeyUnknown(host_key_info))
+        Err(crate::ssh::ConnectError::HostKeyUnknown(info)) => {
+            // SEC-3: Key info captured from the first connection attempt
+            Err(AppError::HostKeyUnknown(HostKeyInfo {
+                fingerprint: info.fingerprint,
+                key_data: info.key_data,
+                algorithm: info.algorithm,
+            }))
         }
         Err(e) => Err(AppError::Ssh(e.to_string())),
-    }
-}
-
-/// Helper: connect briefly just to capture the server's public key info.
-async fn get_host_key_info(host: &str, port: u16) -> Result<HostKeyInfo, AppError> {
-    let key_capture = std::sync::Arc::new(tokio::sync::Mutex::new(None::<(String, String, String)>));
-    let capture_clone = key_capture.clone();
-
-    // We already know the key is unknown/changed, so construct the info
-    // by doing a fresh check. Since the connection failed, we need to
-    // try connecting with an accepting handler to capture the key.
-    let handler = KeyCaptureHandler {
-        captured: capture_clone,
-    };
-
-    let config = std::sync::Arc::new(russh::client::Config::default());
-    let addr = format!("{}:{}", host, port);
-
-    // Try to connect — we only care about capturing the key
-    match russh::client::connect(config, &addr, handler).await {
-        Ok(session) => {
-            // Connected = key was captured; disconnect immediately
-            let _ = session
-                .disconnect(russh::Disconnect::ByApplication, "key capture", "en")
-                .await;
-        }
-        Err(_) => {
-            // Connection may have failed but key could still be captured
-        }
-    }
-
-    let captured = key_capture.lock().await;
-    if let Some((fingerprint, key_data, algorithm)) = captured.as_ref() {
-        Ok(HostKeyInfo {
-            fingerprint: fingerprint.clone(),
-            key_data: key_data.clone(),
-            algorithm: algorithm.clone(),
-        })
-    } else {
-        Err(AppError::Ssh("Could not retrieve server host key".to_string()))
-    }
-}
-
-/// A temporary handler that accepts any key and captures its info.
-struct KeyCaptureHandler {
-    captured: std::sync::Arc<tokio::sync::Mutex<Option<(String, String, String)>>>,
-}
-
-#[async_trait::async_trait]
-impl russh::client::Handler for KeyCaptureHandler {
-    type Error = russh::Error;
-
-    async fn check_server_key(
-        &mut self,
-        server_public_key: &russh_keys::key::PublicKey,
-    ) -> Result<bool, Self::Error> {
-        let algorithm = known_hosts::key_algorithm(server_public_key);
-        let key_data = known_hosts::key_to_base64(server_public_key);
-
-        // Build a human-readable fingerprint
-        let fp = format!("{} {}", algorithm, &key_data[..32.min(key_data.len())]);
-
-        let mut captured = self.captured.lock().await;
-        *captured = Some((fp, key_data, algorithm));
-        Ok(true) // Accept so the connection completes
     }
 }
 

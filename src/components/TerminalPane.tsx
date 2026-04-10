@@ -25,6 +25,10 @@ export default function TerminalPane({
 }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
+  const onDisconnectedRef = useRef(onDisconnected);
+
+  // Keep ref in sync so the listener closure never stale-captures (FE-4 fix)
+  onDisconnectedRef.current = onDisconnected;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -57,42 +61,49 @@ export default function TerminalPane({
       sshSend(connectionId, bytes).catch(() => {});
     });
 
-    // Listen for SSH output from backend
-    let unlistenOutput: UnlistenFn | undefined;
-    let unlistenClosed: UnlistenFn | undefined;
+    // RES-2 fix: track cleanup state and collected unlisten functions.
+    // If the component unmounts before listen() resolves, we set cancelled
+    // and call the unlisten function as soon as it resolves.
+    let cancelled = false;
+    const unlisteners: UnlistenFn[] = [];
 
-    const setupListeners = async () => {
-      unlistenOutput = await listen<{ data: number[] }>(
-        `ssh-output-${connectionId}`,
-        (event) => {
-          const bytes = new Uint8Array(event.payload.data);
-          term.write(bytes);
-        },
-      );
+    listen<{ data: number[] }>(
+      `ssh-output-${connectionId}`,
+      (event) => {
+        const bytes = new Uint8Array(event.payload.data);
+        term.write(bytes);
+      },
+    ).then((fn) => {
+      if (cancelled) { fn(); } else { unlisteners.push(fn); }
+    });
 
-      unlistenClosed = await listen<{ reason: string }>(
-        `ssh-closed-${connectionId}`,
-        (event) => {
-          term.writeln(`\r\n\x1b[31m[Disconnected: ${event.payload.reason}]\x1b[0m`);
-          onDisconnected();
-        },
-      );
-    };
+    listen<{ reason: string }>(
+      `ssh-closed-${connectionId}`,
+      (event) => {
+        term.writeln(`\r\n\x1b[31m[Disconnected: ${event.payload.reason}]\x1b[0m`);
+        onDisconnectedRef.current();
+      },
+    ).then((fn) => {
+      if (cancelled) { fn(); } else { unlisteners.push(fn); }
+    });
 
-    setupListeners();
-
-    // Handle window resize
+    // Handle window resize with debounce (PERF-3 partial fix)
+    let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
-      sshResize(connectionId, term.cols, term.rows).catch(() => {});
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        fitAddon.fit();
+        sshResize(connectionId, term.cols, term.rows).catch(() => {});
+      }, 50);
     });
     resizeObserver.observe(containerRef.current);
 
     return () => {
+      cancelled = true;
       dataDisposable.dispose();
       resizeObserver.disconnect();
-      unlistenOutput?.();
-      unlistenClosed?.();
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      unlisteners.forEach((fn) => fn());
       term.dispose();
       termRef.current = null;
     };

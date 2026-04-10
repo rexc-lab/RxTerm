@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use base64::Engine as _;
+use zeroize::Zeroize;
 use ironrdp_async::{connect_begin, connect_finalize, mark_as_upgraded, FramedWrite, NetworkClient};
 use ironrdp_connector::{
     ClientConnector, Config, Credentials, DesktopSize, ServerName,
@@ -152,39 +153,24 @@ impl RdpConnectionManager {
         let cid = connection_id.to_string();
         let host = host.to_string();
         let username = username.to_string();
-        let password = password.to_string();
+        let mut password = password.to_string();
         let domain = domain.map(str::to_string);
         let sessions = self.sessions.clone();
 
-        // ── Atomically enforce the connection limit and reserve the slot ──────
-        //
-        // We insert a placeholder (with a sender whose other end is dropped so
-        // the task exits immediately) BEFORE spawning the actual task.  This
-        // guarantees:
-        //  1. The limit check and the insertion are serialised under one lock
-        //     acquisition, eliminating the TOCTOU race.
-        //  2. If `run_session` completes before the lock is acquired again, the
-        //     cleanup (`sessions.lock().remove(&cid)`) still finds an entry to
-        //     remove, so nothing is left dangling.
-        {
-            let mut sessions_guard = self.sessions.lock().await;
-            if sessions_guard.len() >= MAX_RDP_CONNECTIONS {
-                return Err(RdpError::TooManyConnections);
-            }
-            // Reserve the slot with a placeholder before spawning the task.
-            // The real JoinHandle will be swapped in after `tokio::spawn`.
-            // We use a oneshot placeholder task that immediately finishes.
-            let placeholder_task = tokio::spawn(async {});
-            sessions_guard.insert(
-                cid.clone(),
-                RdpSession {
-                    task: placeholder_task,
-                    input_tx: input_tx.clone(),
-                },
-            );
-        }
+        // RES-6: Spawn the task first, then atomically check the limit and
+        // insert the real entry in one lock acquisition.  The task waits on
+        // a oneshot signal before doing any real work, so if the limit is
+        // exceeded we drop the sender which causes the task to exit.
+        let (start_tx, start_rx) = tokio::sync::oneshot::channel::<()>();
 
         let task = tokio::spawn(async move {
+            // Wait for the go-ahead; if the sender is dropped (limit exceeded)
+            // the task exits immediately.
+            if start_rx.await.is_err() {
+                return;
+            }
+
+            // SEC-6: zeroize the password after building credentials
             let reason = match run_session(&app, &cid, &host, port, &username, &password, domain.as_deref(), input_rx).await {
                 Ok(reason) => reason,
                 Err(e) => {
@@ -192,6 +178,7 @@ impl RdpConnectionManager {
                     e.to_string()
                 }
             };
+            password.zeroize();
 
             // Notify the frontend that this session ended
             let payload = RdpDisconnectedPayload {
@@ -204,13 +191,26 @@ impl RdpConnectionManager {
             sessions.lock().await.remove(&cid);
         });
 
-        // Replace the placeholder task handle with the real one.
+        // Atomically check limit and insert the real session entry.
         {
             let mut sessions_guard = self.sessions.lock().await;
-            if let Some(entry) = sessions_guard.get_mut(connection_id) {
-                entry.task = task;
+            if sessions_guard.len() >= MAX_RDP_CONNECTIONS {
+                // Drop start_tx so the task exits; then abort for good measure.
+                drop(start_tx);
+                task.abort();
+                return Err(RdpError::TooManyConnections);
             }
+            sessions_guard.insert(
+                connection_id.to_string(),
+                RdpSession {
+                    task,
+                    input_tx: input_tx.clone(),
+                },
+            );
         }
+
+        // Signal the task to begin.
+        let _ = start_tx.send(());
 
         Ok(())
     }
