@@ -1,4 +1,4 @@
-# build-release.ps1 — Build RxTerm release artifacts (MSI + EXE installer)
+# build-release.ps1 — Build RxTerm release artifacts (MSI + EXE + portable zip)
 # Usage: .\build-release.ps1 -Version 0.2.0
 
 param(
@@ -72,6 +72,29 @@ if ($nsis) {
     Copy-Item -Path $nsis.FullName -Destination (Join-Path $releaseDir $destName) -Force
     $copied++
     Write-Host "  EXE:  $(Join-Path $releaseDir $destName)" -ForegroundColor Cyan
+}
+
+# Create portable zip (no installation required — just unzip and run)
+$portableExe = Join-Path $PSScriptRoot "src-tauri\target\release\rxterm.exe"
+if (Test-Path $portableExe) {
+    $portableDir = Join-Path $releaseDir "portable"
+    if (-not (Test-Path $portableDir)) {
+        New-Item -ItemType Directory -Path $portableDir | Out-Null
+    }
+    Copy-Item -Path $portableExe -Destination $portableDir -Force
+    @"
+RxTerm $Version — Portable Edition
+
+Just run rxterm.exe — no installation required.
+Settings are stored in %APPDATA%\RxTerm\.
+"@ | Set-Content (Join-Path $portableDir "README.txt") -Encoding UTF8
+
+    $zipName = "RxTerm_${Version}_windows_portable.zip"
+    $zipPath = Join-Path $releaseDir $zipName
+    Compress-Archive -Path "$portableDir\*" -DestinationPath $zipPath -Force
+    Remove-Item -Recurse -Force $portableDir
+    $copied++
+    Write-Host "  ZIP:  $zipPath" -ForegroundColor Cyan
 }
 
 Write-Host "`n=== Build Complete ===" -ForegroundColor Green

@@ -175,6 +175,41 @@ jobs:
           updaterJsonKeepUniversal: true
           args: ${{ matrix.tauri-args }}
 
+      # ── Windows portable zip (no installer needed) ──────────────
+      - name: Create Windows portable zip
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $exePath = "src-tauri\target\release\rxterm.exe"
+          if (-not (Test-Path $exePath)) {
+            Write-Host "ERROR: $exePath not found" -ForegroundColor Red
+            exit 1
+          }
+          $zipDir = New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\portable" -Force
+          Copy-Item $exePath $zipDir
+          # Include a readme for the portable package
+          @"
+          RxTerm ${{ env.APP_VERSION }} — Portable Edition
+
+          Just run rxterm.exe — no installation required.
+          Settings are stored in %APPDATA%\RxTerm\.
+          "@ | Set-Content (Join-Path $zipDir "README.txt")
+          $zipName = "RxTerm_${{ env.APP_VERSION }}_windows_portable.zip"
+          Compress-Archive -Path "$zipDir\*" -DestinationPath $zipName -Force
+          Write-Host "Created portable zip: $zipName"
+
+      - name: Upload Windows portable zip to release
+        if: matrix.platform == 'windows-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          ZIP_NAME="RxTerm_${APP_VERSION}_windows_portable.zip"
+          gh release upload "$TAG" "$ZIP_NAME" \
+            --repo "${{ github.repository }}" \
+            --clobber
+
   # ── Checksums ───────────────────────────────────────────────────────
   checksums:
     needs: build
@@ -204,6 +239,7 @@ jobs:
             --pattern "*.app.tar.gz" \
             --pattern "*.deb.tar.gz" \
             --pattern "*.AppImage.tar.gz" \
+            --pattern "*_portable.zip" \
             --clobber || true
 
       - name: Generate SHA-256 checksums
