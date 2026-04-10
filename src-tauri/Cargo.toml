@@ -31,7 +31,6 @@ ssh-key = { version = "0.6", features = ["ed25519", "rsa"] }
 base64 = "0.22"
 async-trait = "0.1"
 log = "0.4"
-once_cell = "1"
 zeroize = "1"
 tauri-plugin-updater = "2"
 tokio-tungstenite = "0.26"

@@ -1,9 +1,7 @@
-use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex as StdMutex;
 
-use once_cell::sync::Lazy;
 use tauri::{AppHandle, State};
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::known_hosts::KnownHostsStore;
 use crate::rdp::{RdpConnectionManager, RdpKeyEvent, RdpMouseEvent};
@@ -42,15 +40,19 @@ impl serde::Serialize for AppError {
     }
 }
 
-/// Global mutex that serialises all read-modify-write operations on
+/// Global async mutex that serialises all read-modify-write operations on
 /// `sessions.json`, preventing concurrent calls from losing updates (RES-4).
-static SESSIONS_FILE_LOCK: Lazy<StdMutex<()>> = Lazy::new(|| StdMutex::new(()));
+/// Uses `tokio::sync::Mutex` so we can hold it across `.await` points without
+/// blocking the executor (ROB-2).
+static SESSIONS_FILE_LOCK: TokioMutex<()> = TokioMutex::const_new(());
 
 /// Returns the directory used to persist session data.
 ///
 /// On Windows this resolves to `%APPDATA%\RxTerm\`.
 /// The directory is created on first access if it does not exist.
-fn data_dir() -> Result<PathBuf, AppError> {
+///
+/// ROB-2: uses `tokio::fs` to avoid blocking the async runtime.
+async fn data_dir() -> Result<PathBuf, AppError> {
     let base = dirs::data_dir().ok_or_else(|| {
         AppError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -58,15 +60,15 @@ fn data_dir() -> Result<PathBuf, AppError> {
         ))
     })?;
     let dir = base.join("RxTerm");
-    if !dir.exists() {
-        fs::create_dir_all(&dir)?;
+    if !tokio::fs::try_exists(&dir).await.unwrap_or(false) {
+        tokio::fs::create_dir_all(&dir).await?;
     }
     Ok(dir)
 }
 
 /// Path to the JSON file that holds all saved sessions.
-fn sessions_file() -> Result<PathBuf, AppError> {
-    Ok(data_dir()?.join("sessions.json"))
+async fn sessions_file() -> Result<PathBuf, AppError> {
+    Ok(data_dir().await?.join("sessions.json"))
 }
 
 /// Load all saved SSH sessions from disk.
@@ -74,32 +76,26 @@ fn sessions_file() -> Result<PathBuf, AppError> {
 /// Returns an empty list if the file does not yet exist.
 #[tauri::command]
 pub async fn get_sessions() -> Result<Vec<SshSession>, AppError> {
-    let _guard = SESSIONS_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let path = sessions_file()?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let data = fs::read_to_string(&path)?;
-    let sessions: Vec<SshSession> = serde_json::from_str(&data)?;
-    Ok(sessions)
+    let _guard = SESSIONS_FILE_LOCK.lock().await;
+    read_sessions_locked().await
 }
 
 /// Internal helper: read sessions while the lock is already held.
-fn read_sessions_locked() -> Result<Vec<SshSession>, AppError> {
-    let path = sessions_file()?;
-    if !path.exists() {
+async fn read_sessions_locked() -> Result<Vec<SshSession>, AppError> {
+    let path = sessions_file().await?;
+    if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
         return Ok(Vec::new());
     }
-    let data = fs::read_to_string(&path)?;
+    let data = tokio::fs::read_to_string(&path).await?;
     let sessions: Vec<SshSession> = serde_json::from_str(&data)?;
     Ok(sessions)
 }
 
 /// Internal helper: write sessions while the lock is already held.
-fn write_sessions_locked(sessions: &[SshSession]) -> Result<(), AppError> {
-    let path = sessions_file()?;
+async fn write_sessions_locked(sessions: &[SshSession]) -> Result<(), AppError> {
+    let path = sessions_file().await?;
     let json = serde_json::to_string_pretty(sessions)?;
-    fs::write(&path, json)?;
+    tokio::fs::write(&path, json).await?;
     Ok(())
 }
 
@@ -113,8 +109,8 @@ pub async fn save_session(session: SshSession) -> Result<Vec<SshSession>, AppErr
     session::validate_session(&session)
         .map_err(|e| AppError::Validation(e.to_string()))?;
 
-    let _guard = SESSIONS_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut sessions = read_sessions_locked()?;
+    let _guard = SESSIONS_FILE_LOCK.lock().await;
+    let mut sessions = read_sessions_locked().await?;
 
     if let Some(pos) = sessions.iter().position(|s| s.id == session.id) {
         sessions[pos] = session;
@@ -122,26 +118,26 @@ pub async fn save_session(session: SshSession) -> Result<Vec<SshSession>, AppErr
         sessions.push(session);
     }
 
-    write_sessions_locked(&sessions)?;
+    write_sessions_locked(&sessions).await?;
     Ok(sessions)
 }
 
 /// Delete an SSH session by its `id`.
 #[tauri::command]
 pub async fn delete_session(id: String) -> Result<Vec<SshSession>, AppError> {
-    let _guard = SESSIONS_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut sessions = read_sessions_locked()?;
+    let _guard = SESSIONS_FILE_LOCK.lock().await;
+    let mut sessions = read_sessions_locked().await?;
     sessions.retain(|s| s.id != id);
 
-    write_sessions_locked(&sessions)?;
+    write_sessions_locked(&sessions).await?;
     Ok(sessions)
 }
 
 /// Export all sessions to a JSON string (for file-save dialog on the frontend).
 #[tauri::command]
 pub async fn export_sessions() -> Result<String, AppError> {
-    let _guard = SESSIONS_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let sessions = read_sessions_locked()?;
+    let _guard = SESSIONS_FILE_LOCK.lock().await;
+    let sessions = read_sessions_locked().await?;
     let json = serde_json::to_string_pretty(&sessions)?;
     Ok(json)
 }
@@ -159,8 +155,8 @@ pub async fn import_sessions(json: String) -> Result<Vec<SshSession>, AppError> 
             .map_err(|e| AppError::Validation(format!("session '{}': {}", s.id, e)))?;
     }
 
-    let _guard = SESSIONS_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut sessions = read_sessions_locked()?;
+    let _guard = SESSIONS_FILE_LOCK.lock().await;
+    let mut sessions = read_sessions_locked().await?;
 
     for incoming in imported {
         if let Some(pos) = sessions.iter().position(|s| s.id == incoming.id) {
@@ -170,7 +166,7 @@ pub async fn import_sessions(json: String) -> Result<Vec<SshSession>, AppError> 
         }
     }
 
-    write_sessions_locked(&sessions)?;
+    write_sessions_locked(&sessions).await?;
     Ok(sessions)
 }
 
@@ -320,6 +316,7 @@ pub struct VncConnectResult {
 /// frontend noVNC client should connect to.
 #[tauri::command]
 pub async fn vnc_connect(
+    app: AppHandle,
     vnc_manager: State<'_, VncConnectionManager>,
     session_id: String,
     password: Option<String>,
@@ -343,7 +340,7 @@ pub async fn vnc_connect(
     let _ = password;
 
     let ws_port = vnc_manager
-        .start_proxy(&connection_id, &session.host, session.port)
+        .start_proxy(&app, &connection_id, &session.host, session.port)
         .await
         .map_err(|e| AppError::Vnc(e.to_string()))?;
 

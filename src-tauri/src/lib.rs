@@ -45,5 +45,8 @@ pub fn run() {
             rdp_key_event,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|e| {
+            eprintln!("Fatal: failed to start Tauri application: {e}");
+            std::process::exit(1);
+        });
 }
