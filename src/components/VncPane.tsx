@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import RFB from "@novnc/novnc/lib/rfb";
 
 interface VncPaneProps {
@@ -8,27 +8,30 @@ interface VncPaneProps {
   wsPort: number;
   /** VNC password for the RFB handshake (optional). */
   password?: string;
-  /** Called when the VNC connection is closed. */
+  /** Called when the user explicitly closes the tab. */
   onDisconnected: () => void;
+  /** Called to re-establish the connection (reconnect). */
+  onReconnect: () => void;
 }
 
 /**
  * Renders a VNC remote desktop session using noVNC.
  *
- * Data flow:
- * - noVNC connects via WebSocket to a local proxy (127.0.0.1:wsPort)
- * - The Rust backend proxies the WebSocket to the real VNC server
+ * On connection failure or unclean disconnect, shows an error overlay
+ * with a Reconnect button instead of closing the tab.
  */
 export default function VncPane({
   connectionId,
   wsPort,
   password,
   onDisconnected,
+  onReconnect,
 }: VncPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<RFB | null>(null);
   const passwordRef = useRef(password);
   const onDisconnectedRef = useRef(onDisconnected);
+  const [error, setError] = useState<string | null>(null);
 
   // Keep refs in sync with latest props
   passwordRef.current = password;
@@ -36,6 +39,7 @@ export default function VncPane({
 
   useEffect(() => {
     if (!containerRef.current) return;
+    setError(null);
 
     const url = `ws://127.0.0.1:${wsPort}`;
 
@@ -53,16 +57,19 @@ export default function VncPane({
     rfb.addEventListener("disconnect", (e: CustomEvent) => {
       const clean = e.detail?.clean ?? false;
       if (!clean) {
-        console.warn(`[VNC ${connectionId}] unclean disconnect`);
+        // Show error in the pane instead of closing the tab
+        setError("VNC connection lost unexpectedly.");
+      } else {
+        // Clean disconnect (user-initiated) — close the tab
+        onDisconnectedRef.current();
       }
-      onDisconnectedRef.current();
     });
 
     rfb.addEventListener("credentialsrequired", () => {
       if (passwordRef.current) {
         rfb.sendCredentials({ password: passwordRef.current });
       } else {
-        rfb.disconnect();
+        setError("VNC server requires a password but none was provided.");
       }
     });
 
@@ -73,6 +80,24 @@ export default function VncPane({
       }
     };
   }, [connectionId, wsPort]);
+
+  if (error) {
+    return (
+      <div className="pane-error">
+        <div className="pane-error-icon">&#x26A0;</div>
+        <div className="pane-error-title">Connection Failed</div>
+        <div className="pane-error-message">{error}</div>
+        <div className="pane-error-actions">
+          <button className="btn-primary" onClick={onReconnect}>
+            Reconnect
+          </button>
+          <button className="btn-secondary" onClick={onDisconnected}>
+            Close Tab
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
