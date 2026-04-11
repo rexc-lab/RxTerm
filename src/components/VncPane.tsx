@@ -42,8 +42,12 @@ export default function VncPane({
     const rfb = new RFB(containerRef.current, url, {
       credentials: passwordRef.current ? { password: passwordRef.current } : undefined,
     });
+    // Scale the remote desktop to fit the container — keeps VNC inside its
+    // tab pane instead of overflowing to full screen.
     rfb.scaleViewport = true;
-    rfb.resizeSession = true;
+    // Do NOT resize the remote session to match the container — that causes
+    // the server to resize and the canvas to grow unbounded.
+    rfb.resizeSession = false;
     rfbRef.current = rfb;
 
     rfb.addEventListener("disconnect", (e: CustomEvent) => {
