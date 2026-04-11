@@ -469,11 +469,21 @@ export default function App() {
                       wsPort={conn.wsPort}
                       password={conn.vncPassword}
                       onDisconnected={() => handleRemoteDisconnect(conn.id)}
+                      onReconnect={() => {
+                        const session = sessions.find((s) => s.id === conn.sessionId);
+                        removeConnection(conn.id);
+                        if (session) handleConnect(session);
+                      }}
                     />
                   ) : conn.protocol === "rdp" ? (
                     <RdpPane
                       connectionId={conn.id}
                       onDisconnected={() => handleRemoteDisconnect(conn.id)}
+                      onReconnect={() => {
+                        const session = sessions.find((s) => s.id === conn.sessionId);
+                        removeConnection(conn.id);
+                        if (session) handleConnect(session);
+                      }}
                     />
                   ) : (
                     <TerminalPane

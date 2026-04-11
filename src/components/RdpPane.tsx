@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import type { MouseEvent, WheelEvent, KeyboardEvent } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import type { RdpFramePayload, RdpDisconnectedPayload } from "../types";
@@ -7,8 +7,10 @@ import { rdpMouseEvent, rdpKeyEvent } from "../api";
 interface RdpPaneProps {
   /** Unique connection identifier from the backend. */
   connectionId: string;
-  /** Called when the RDP session is closed (by server or error). */
+  /** Called when the user explicitly closes the tab. */
   onDisconnected: () => void;
+  /** Called to re-establish the connection (reconnect). */
+  onReconnect: () => void;
 }
 
 /** PERF-4 fix: scancode map as a module-level constant. */
@@ -71,13 +73,15 @@ const SCANCODE_MAP: Record<string, number> = {
  * - This component paints each dirty rect onto the canvas using `putImageData`
  * - Keyboard / mouse events are forwarded to the backend via Tauri commands
  */
-export default function RdpPane({ connectionId, onDisconnected }: RdpPaneProps) {
+export default function RdpPane({ connectionId, onDisconnected, onReconnect }: RdpPaneProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const connectionIdRef = useRef(connectionId);
   const onDisconnectedRef = useRef(onDisconnected);
   // PERF-5 fix: cache the 2D context in a ref
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const hasReceivedFrame = useRef(false);
 
   // Keep refs in sync with latest props so closures never stale-capture them
   connectionIdRef.current = connectionId;
@@ -123,6 +127,7 @@ export default function RdpPane({ connectionId, onDisconnected }: RdpPaneProps) 
 
     listen<RdpFramePayload>("rdp-frame", (event) => {
       if (event.payload.connection_id === connectionIdRef.current) {
+        hasReceivedFrame.current = true;
         blitFrame(event.payload);
       }
     }).then((fn) => {
@@ -131,7 +136,9 @@ export default function RdpPane({ connectionId, onDisconnected }: RdpPaneProps) 
 
     listen<RdpDisconnectedPayload>("rdp-disconnected", (event) => {
       if (event.payload.connection_id === connectionIdRef.current) {
-        onDisconnectedRef.current();
+        const reason = event.payload.reason || "Connection closed";
+        // Show error in the pane instead of closing the tab
+        setError(`RDP session ended: ${reason}`);
       }
     }).then((fn) => {
       if (cancelled) { fn(); } else { unlisteners.push(fn); }
@@ -212,6 +219,24 @@ export default function RdpPane({ connectionId, onDisconnected }: RdpPaneProps) 
       rdpKeyEvent(connectionIdRef.current, scancode, false).catch(() => {});
     }
   }, []);
+
+  if (error) {
+    return (
+      <div className="pane-error">
+        <div className="pane-error-icon">&#x26A0;</div>
+        <div className="pane-error-title">Connection Failed</div>
+        <div className="pane-error-message">{error}</div>
+        <div className="pane-error-actions">
+          <button className="btn-primary" onClick={onReconnect}>
+            Reconnect
+          </button>
+          <button className="btn-secondary" onClick={onDisconnected}>
+            Close Tab
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
