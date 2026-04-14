@@ -33,8 +33,6 @@ async-trait = "0.1"
 log = "0.4"
 zeroize = "1"
 tauri-plugin-updater = "2"
-tokio-tungstenite = "0.26"
-futures-util = "0.3"
 # IronRDP crates — these are separate crates from the same IronRDP workspace.
 # Each crate has its own independent semver version; the versions below are
 # the compatible set that shipped together.

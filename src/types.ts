@@ -1,12 +1,12 @@
 /** Shared TypeScript types mirroring the Rust data model. */
 
 /** Connection protocol for a session. */
-export type Protocol = "ssh" | "vnc" | "rdp";
+export type Protocol = "ssh" | "rdp";
 
 /** Authentication method for an SSH session. */
 export type AuthMethod = "password" | "key";
 
-/** A saved session configuration (SSH, VNC, or RDP). */
+/** A saved session configuration (SSH or RDP). */
 export interface SshSession {
   /** Unique identifier (UUID v4). */
   id: string;
@@ -16,13 +16,13 @@ export interface SshSession {
   protocol: Protocol;
   /** Remote hostname or IP address. */
   host: string;
-  /** Port (default 22 for SSH, 5900 for VNC, 3389 for RDP). */
+  /** Port (default 22 for SSH, 3389 for RDP). */
   port: number;
   /** Username for authentication (SSH and RDP). */
   username: string;
   /** Authentication method (SSH only). */
   auth_method: AuthMethod;
-  /** Password (SSH password auth, VNC authentication, or RDP authentication). */
+  /** Password (SSH password auth or RDP authentication). */
   password?: string;
   /** Path to the private key file (SSH key auth only). */
   private_key_path?: string;
@@ -35,7 +35,7 @@ export interface SshSession {
 /** Shape of the new-session form state (before an id is assigned). */
 export type SshSessionDraft = Omit<SshSession, "id">;
 
-/** An active terminal, VNC, or RDP connection. */
+/** An active terminal or RDP connection. */
 export interface Connection {
   /** Unique connection identifier (UUID). */
   id: string;
@@ -45,10 +45,6 @@ export interface Connection {
   label: string;
   /** Connection protocol. */
   protocol: Protocol;
-  /** Local WebSocket port for VNC proxy (VNC only). */
-  wsPort?: number;
-  /** VNC password for the RFB handshake (VNC only). */
-  vncPassword?: string;
   /** RDP desktop dimensions (RDP only). */
   rdpWidth?: number;
   rdpHeight?: number;
@@ -100,19 +96,6 @@ export function emptySshDraft(): SshSessionDraft {
     auth_method: "password",
     password: "",
     private_key_path: "",
-    notes: "",
-  };
-}
-
-/** Create an empty VNC draft with sensible defaults. */
-export function emptyVncDraft(): SshSessionDraft {
-  return {
-    label: "",
-    protocol: "vnc",
-    host: "",
-    port: 5900,
-    username: "",
-    auth_method: "password",
     notes: "",
   };
 }

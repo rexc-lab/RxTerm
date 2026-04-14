@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { SshSession, SshSessionDraft, AuthMethod, Protocol } from "../types";
-import { emptySshDraft, emptyVncDraft, emptyRdpDraft } from "../types";
+import { emptySshDraft, emptyRdpDraft } from "../types";
 
 interface SshSessionFormProps {
   /** If provided, the form pre-fills with this session's data (edit mode). */
@@ -12,7 +12,7 @@ interface SshSessionFormProps {
 }
 
 /**
- * Form for creating or editing a session configuration (SSH or VNC).
+ * Form for creating or editing a session configuration (SSH or RDP).
  *
  * Fields are conditionally shown based on the selected protocol.
  */
@@ -53,11 +53,9 @@ export default function SshSessionForm({
   const handleProtocolChange = (protocol: Protocol) => {
     if (protocol === draft.protocol) return;
     const base =
-      protocol === "vnc"
-        ? emptyVncDraft()
-        : protocol === "rdp"
-          ? emptyRdpDraft()
-          : emptySshDraft();
+      protocol === "rdp"
+        ? emptyRdpDraft()
+        : emptySshDraft();
     // Preserve label, host, and notes across protocol switches
     setDraft({
       ...base,
@@ -124,7 +122,6 @@ export default function SshSessionForm({
           onChange={(e) => handleProtocolChange(e.target.value as Protocol)}
         >
           <option value="ssh">SSH</option>
-          <option value="vnc">VNC</option>
           <option value="rdp">RDP</option>
         </select>
       </div>
@@ -234,20 +231,6 @@ export default function SshSessionForm({
             </div>
           )}
         </>
-      )}
-
-      {/* VNC password (optional) */}
-      {!isSsh && !isRdp && (
-        <div className="form-group">
-          <label htmlFor={`${prefix}-password`}>VNC Password (optional)</label>
-          <input
-            id={`${prefix}-password`}
-            type="password"
-            placeholder="••••••••"
-            value={draft.password ?? ""}
-            onChange={(e) => set("password", e.target.value)}
-          />
-        </div>
       )}
 
       {/* RDP-specific fields */}

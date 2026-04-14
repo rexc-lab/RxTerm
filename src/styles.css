@@ -833,36 +833,14 @@ button:disabled {
   color: var(--accent-light);
 }
 
-.protocol-vnc {
-  background-color: rgba(156, 108, 220, 0.15);
-  color: #b48eda;
-}
-
 .protocol-rdp {
   background-color: rgba(78, 201, 176, 0.15);
   color: var(--success);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   VNC / RDP panes
+   RDP pane
    ═══════════════════════════════════════════════════════════════════════ */
-
-.vnc-container {
-  width: 100%;
-  height: 100%;
-  background-color: var(--bg-pane);
-  overflow: hidden;
-  position: relative;
-}
-
-/* Constrain noVNC's internal elements to the container */
-.vnc-container > div {
-  width: 100% !important;
-  height: 100% !important;
-  position: absolute !important;
-  inset: 0 !important;
-  overflow: hidden !important;
-}
 
 .rdp-container {
   width: 100%;
@@ -875,7 +853,7 @@ button:disabled {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   Pane error overlay (VNC / RDP connection failure)
+   Pane error overlay (RDP connection failure)
    ═══════════════════════════════════════════════════════════════════════ */
 
 .pane-error {
