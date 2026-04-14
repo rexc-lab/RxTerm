@@ -51,7 +51,7 @@ Rust backend manages the VNC session lifecycle, polls for frame updates, and emi
 
 **Input events (from frontend):**
 - `VncMouseEvent` — `{ x: u16, y: u16, button: Option<u8>, pressed: bool, scroll_delta: Option<i16> }` (same shape as `RdpMouseEvent`)
-- `VncKeyEvent` — `{ scancode: u16, pressed: bool }` (same shape as `RdpKeyEvent`)
+- `VncKeyEvent` — `{ keysym: u32, pressed: bool }` (X11 keysym, not scancode — VNC uses keysyms per RFB spec)
 
 **Output events (to frontend):**
 - `VncFramePayload` — `{ connection_id, full_width, full_height, x, y, width, height, data }` (base64-encoded RGBA, same shape as `RdpFramePayload`)
@@ -94,7 +94,7 @@ Same pattern as `RdpConnectionManager`:
      - `SetCursor` — ignore for now
    - `input_rx.recv()` branch:
      - `Mouse` — translate button state to VNC button mask, send via vnc-rs
-     - `Key` — translate scancode to X11 keysym, send via vnc-rs
+     - `Key` — forward X11 keysym to vnc-rs
      - `Clipboard` — send clipboard text via vnc-rs
      - `Disconnect` / `None` — break loop
 5. **Cleanup** — emit `vnc-disconnected`, remove from session map, zeroize password
@@ -151,7 +151,7 @@ New functions (1:1 with Rust commands):
 - `vncConnect(sessionId, password?, username?)` → `{ connection_id: string }`
 - `vncDisconnect(connectionId)` → `void`
 - `vncMouseEvent(connectionId, x, y, button, pressed, scrollDelta)` → `void`
-- `vncKeyEvent(connectionId, scancode, pressed)` → `void`
+- `vncKeyEvent(connectionId, keysym, pressed)` → `void`
 - `vncSendClipboard(connectionId, text)` → `void`
 
 ## Frontend: `src/components/VncPane.tsx`
