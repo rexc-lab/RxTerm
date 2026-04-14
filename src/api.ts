@@ -87,24 +87,6 @@ export async function sshDisconnect(connectionId: string): Promise<void> {
   return invoke("ssh_disconnect", { connectionId });
 }
 
-// ─── VNC connection commands ────────────────────────────────────────────────
-
-/** Start a VNC WebSocket proxy for the given session. */
-export async function vncConnect(
-  sessionId: string,
-  password?: string,
-): Promise<{ connection_id: string; ws_port: number }> {
-  return invoke<{ connection_id: string; ws_port: number }>("vnc_connect", {
-    sessionId,
-    password: password ?? null,
-  });
-}
-
-/** Stop a VNC proxy connection. */
-export async function vncDisconnect(connectionId: string): Promise<void> {
-  return invoke("vnc_disconnect", { connectionId });
-}
-
 // ─── RDP connection commands ────────────────────────────────────────────────
 
 /** Start an RDP session for the given session. */

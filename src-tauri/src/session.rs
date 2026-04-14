@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 pub enum Protocol {
     /// SSH terminal session.
     Ssh,
-    /// VNC remote desktop session.
-    Vnc,
     /// RDP remote desktop session.
     Rdp,
 }
@@ -31,7 +29,7 @@ pub enum AuthMethod {
 /// Represents all user-configurable fields for a single session.
 ///
 /// Fields that are SSH-specific (e.g. `username`, `auth_method`, `private_key_path`)
-/// are still present but ignored when `protocol` is `Vnc`.
+/// are still present but may be ignored for non-SSH protocols.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SshSession {
     /// Unique identifier (UUID v4).
@@ -43,7 +41,7 @@ pub struct SshSession {
     pub protocol: Protocol,
     /// Remote hostname or IP address.
     pub host: String,
-    /// Port (default 22 for SSH, 5900 for VNC).
+    /// Port (default 22 for SSH, 3389 for RDP).
     pub port: u16,
     /// Username for authentication (SSH only).
     pub username: String,

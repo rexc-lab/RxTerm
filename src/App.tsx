@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import SshSessionForm from "./components/SshSessionForm";
 import SessionList from "./components/SessionList";
 import TerminalPane from "./components/TerminalPane";
-import VncPane from "./components/VncPane";
 import RdpPane from "./components/RdpPane";
 import TerminalTabs from "./components/TerminalTabs";
 import HostKeyDialog from "./components/HostKeyDialog";
@@ -21,8 +20,6 @@ import {
   sshConnect,
   sshAcceptHostKey,
   sshDisconnect,
-  vncConnect,
-  vncDisconnect,
   rdpConnect,
   rdpDisconnect,
 } from "./api";
@@ -173,47 +170,10 @@ export default function App() {
 
   // ─── SSH connection handlers ─────────────────────────────────
 
-  /** Attempt to connect to a session (SSH, VNC, or RDP). */
+  /** Attempt to connect to a session (SSH or RDP). */
   const handleConnect = useCallback(
     async (session: SshSession, overridePassword?: string) => {
       const proto = session.protocol ?? "ssh";
-
-      if (proto === "vnc") {
-        // VNC connection flow
-        try {
-          setStatus({ type: "success", text: `Connecting to ${session.label}…` });
-          const result = await vncConnect(session.id, overridePassword ?? session.password);
-
-          const conn: Connection = {
-            id: result.connection_id,
-            sessionId: session.id,
-            label: session.label,
-            protocol: "vnc",
-            wsPort: result.ws_port,
-            // SEC-5: password is passed to VncPane once; cleared from
-            // state after a short delay so it doesn't persist in the
-            // React component tree.
-            vncPassword: overridePassword ?? session.password,
-          };
-          setConnections((prev) => [...prev, conn]);
-          // SEC-5: clear the password from connection state after VncPane
-          // has had a chance to read it on its first render.
-          setTimeout(() => {
-            setConnections((prev) =>
-              prev.map((c) =>
-                c.id === result.connection_id
-                  ? { ...c, vncPassword: undefined }
-                  : c,
-              ),
-            );
-          }, 1000);
-          setActiveConnectionId(result.connection_id);
-          setStatus({ type: "success", text: `Connected to ${session.label}` });
-        } catch (err: unknown) {
-          setStatus({ type: "error", text: String(err) });
-        }
-        return;
-      }
 
       if (proto === "rdp") {
         // RDP connection flow
@@ -334,9 +294,7 @@ export default function App() {
     // FE-3: read from ref so this callback doesn't depend on connections state
     const conn = connectionsRef.current.find((c) => c.id === connectionId);
     try {
-      if (conn?.protocol === "vnc") {
-        await vncDisconnect(connectionId);
-      } else if (conn?.protocol === "rdp") {
+      if (conn?.protocol === "rdp") {
         await rdpDisconnect(connectionId);
       } else {
         await sshDisconnect(connectionId);
@@ -463,19 +421,7 @@ export default function App() {
                     display: conn.id === activeConnectionId ? "block" : "none",
                   }}
                 >
-                  {conn.protocol === "vnc" && conn.wsPort ? (
-                    <VncPane
-                      connectionId={conn.id}
-                      wsPort={conn.wsPort}
-                      password={conn.vncPassword}
-                      onDisconnected={() => handleRemoteDisconnect(conn.id)}
-                      onReconnect={() => {
-                        const session = sessions.find((s) => s.id === conn.sessionId);
-                        removeConnection(conn.id);
-                        if (session) handleConnect(session);
-                      }}
-                    />
-                  ) : conn.protocol === "rdp" ? (
+                  {conn.protocol === "rdp" ? (
                     <RdpPane
                       connectionId={conn.id}
                       onDisconnected={() => handleRemoteDisconnect(conn.id)}
