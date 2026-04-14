@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { SshSession, SshSessionDraft, AuthMethod, Protocol } from "../types";
-import { emptySshDraft, emptyRdpDraft } from "../types";
+import { emptySshDraft, emptyRdpDraft, emptyVncDraft } from "../types";
 
 interface SshSessionFormProps {
   /** If provided, the form pre-fills with this session's data (edit mode). */
@@ -55,7 +55,9 @@ export default function SshSessionForm({
     const base =
       protocol === "rdp"
         ? emptyRdpDraft()
-        : emptySshDraft();
+        : protocol === "vnc"
+          ? emptyVncDraft()
+          : emptySshDraft();
     // Preserve label, host, and notes across protocol switches
     setDraft({
       ...base,
@@ -106,6 +108,7 @@ export default function SshSessionForm({
 
   const isSsh = draft.protocol === "ssh";
   const isRdp = draft.protocol === "rdp";
+  const isVnc = draft.protocol === "vnc";
   // UX-1: prefix IDs with protocol to avoid duplicate HTML id attributes
   const prefix = draft.protocol;
 
@@ -123,6 +126,7 @@ export default function SshSessionForm({
         >
           <option value="ssh">SSH</option>
           <option value="rdp">RDP</option>
+          <option value="vnc">VNC</option>
         </select>
       </div>
 
@@ -270,6 +274,35 @@ export default function SshSessionForm({
               id={`${prefix}-password`}
               type="password"
               placeholder="••••••••"
+              value={draft.password ?? ""}
+              onChange={(e) => set("password", e.target.value)}
+            />
+          </div>
+        </>
+      )}
+
+      {/* VNC-specific fields */}
+      {isVnc && (
+        <>
+          {/* Username (optional — for servers supporting user+password) */}
+          <div className="form-group">
+            <label htmlFor={`${prefix}-username`}>Username (optional)</label>
+            <input
+              id={`${prefix}-username`}
+              type="text"
+              placeholder="Leave empty for classic VNC auth"
+              value={draft.username}
+              onChange={(e) => set("username", e.target.value)}
+            />
+          </div>
+
+          {/* Password */}
+          <div className="form-group">
+            <label htmlFor={`${prefix}-password`}>Password</label>
+            <input
+              id={`${prefix}-password`}
+              type="password"
+              placeholder="VNC password"
               value={draft.password ?? ""}
               onChange={(e) => set("password", e.target.value)}
             />
