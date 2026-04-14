@@ -8,6 +8,8 @@ pub enum Protocol {
     Ssh,
     /// RDP remote desktop session.
     Rdp,
+    /// VNC remote desktop session.
+    Vnc,
 }
 
 impl Default for Protocol {
