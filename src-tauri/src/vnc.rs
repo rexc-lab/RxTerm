@@ -131,13 +131,20 @@ impl VncConnectionManager {
         password: &str,
         username: Option<&str>,
     ) -> Result<(), VncError> {
-        validate_vnc_host(host)?;
+        if !crate::session::is_valid_host(host) {
+            return Err(VncError::InvalidHost(format!(
+                "Host contains invalid characters: {}",
+                host
+            )));
+        }
 
         let (input_tx, input_rx) = mpsc::channel::<VncInput>(64);
 
         let cid = connection_id.to_string();
         let host = host.to_string();
         let mut password = password.to_string();
+        // TODO: vnc-rs does not currently support username-based auth (e.g. Apple ARD).
+        // The username parameter is accepted here for forward compatibility but is not sent.
         let _username = username.map(str::to_string);
         let sessions = self.sessions.clone();
 
@@ -247,28 +254,6 @@ impl VncConnectionManager {
 }
 
 // ─── Core session runner ──────────────────────────────────────────────────────
-
-/// Validate that the VNC host is a reasonable hostname or IP address.
-fn validate_vnc_host(host: &str) -> Result<(), VncError> {
-    if host.is_empty() || host.len() > 253 {
-        return Err(VncError::InvalidHost(
-            "Host must be between 1 and 253 characters".to_string(),
-        ));
-    }
-    if host.parse::<std::net::IpAddr>().is_ok() {
-        return Ok(());
-    }
-    if !host
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
-    {
-        return Err(VncError::InvalidHost(format!(
-            "Host contains invalid characters: {}",
-            host
-        )));
-    }
-    Ok(())
-}
 
 /// Run a complete VNC session from connect to disconnect.
 async fn run_session(
@@ -474,6 +459,9 @@ fn update_framebuffer(
 }
 
 /// Copy a rectangular region within the framebuffer (for CopyRect encoding).
+///
+/// When source and destination overlap vertically, rows are iterated in reverse
+/// order to prevent overwriting source data before it is read.
 fn copy_framebuffer_rect(
     framebuffer: &mut [u8],
     fb_width: u16,
@@ -487,12 +475,18 @@ fn copy_framebuffer_rect(
     let row_bytes = w * bpp;
 
     let mut row_buf = vec![0u8; row_bytes];
-    for row in 0..h {
+
+    // When dst is below src, iterate bottom-to-top to avoid overwriting
+    // source rows before they are read (memmove-style overlap handling).
+    let reverse = dst.y > src.y || (dst.y == src.y && dst.x > src.x);
+
+    for i in 0..h {
+        let row = if reverse { h - 1 - i } else { i };
         let src_offset = (src.y as usize + row) * stride + src.x as usize * bpp;
         let dst_offset = (dst.y as usize + row) * stride + dst.x as usize * bpp;
 
         if src_offset + row_bytes > framebuffer.len() || dst_offset + row_bytes > framebuffer.len() {
-            break;
+            continue;
         }
 
         row_buf.copy_from_slice(&framebuffer[src_offset..src_offset + row_bytes]);
