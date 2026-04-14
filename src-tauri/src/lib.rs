@@ -3,6 +3,7 @@ pub mod known_hosts;
 pub mod rdp;
 pub mod session;
 pub mod ssh;
+pub mod vnc;
 
 use commands::{
     delete_session, export_sessions, get_sessions, import_sessions, save_session,
