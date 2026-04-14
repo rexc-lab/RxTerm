@@ -3,6 +3,7 @@ import SshSessionForm from "./components/SshSessionForm";
 import SessionList from "./components/SessionList";
 import TerminalPane from "./components/TerminalPane";
 import RdpPane from "./components/RdpPane";
+import VncPane from "./components/VncPane";
 import TerminalTabs from "./components/TerminalTabs";
 import HostKeyDialog from "./components/HostKeyDialog";
 import type {
@@ -22,6 +23,8 @@ import {
   sshDisconnect,
   rdpConnect,
   rdpDisconnect,
+  vncConnect,
+  vncDisconnect,
 } from "./api";
 
 type View = "list" | "form";
@@ -196,6 +199,27 @@ export default function App() {
         return;
       }
 
+      if (proto === "vnc") {
+        // VNC connection flow
+        try {
+          setStatus({ type: "success", text: `Connecting to ${session.label}…` });
+          const result = await vncConnect(session.id, overridePassword ?? session.password);
+
+          const conn: Connection = {
+            id: result.connection_id,
+            sessionId: session.id,
+            label: session.label,
+            protocol: "vnc",
+          };
+          setConnections((prev) => [...prev, conn]);
+          setActiveConnectionId(result.connection_id);
+          setStatus({ type: "success", text: `Connected to ${session.label}` });
+        } catch (err: unknown) {
+          setStatus({ type: "error", text: String(err) });
+        }
+        return;
+      }
+
       // SSH connection flow
       try {
         const pw =
@@ -296,6 +320,8 @@ export default function App() {
     try {
       if (conn?.protocol === "rdp") {
         await rdpDisconnect(connectionId);
+      } else if (conn?.protocol === "vnc") {
+        await vncDisconnect(connectionId);
       } else {
         await sshDisconnect(connectionId);
       }
@@ -423,6 +449,16 @@ export default function App() {
                 >
                   {conn.protocol === "rdp" ? (
                     <RdpPane
+                      connectionId={conn.id}
+                      onDisconnected={() => handleRemoteDisconnect(conn.id)}
+                      onReconnect={() => {
+                        const session = sessions.find((s) => s.id === conn.sessionId);
+                        removeConnection(conn.id);
+                        if (session) handleConnect(session);
+                      }}
+                    />
+                  ) : conn.protocol === "vnc" ? (
+                    <VncPane
                       connectionId={conn.id}
                       onDisconnected={() => handleRemoteDisconnect(conn.id)}
                       onReconnect={() => {

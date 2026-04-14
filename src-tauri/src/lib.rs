@@ -3,14 +3,17 @@ pub mod known_hosts;
 pub mod rdp;
 pub mod session;
 pub mod ssh;
+pub mod vnc;
 
 use commands::{
     delete_session, export_sessions, get_sessions, import_sessions, save_session,
     ssh_accept_host_key, ssh_connect, ssh_disconnect, ssh_resize, ssh_send,
     rdp_connect, rdp_disconnect, rdp_mouse_event, rdp_key_event,
+    vnc_connect, vnc_disconnect, vnc_mouse_event, vnc_key_event, vnc_send_clipboard,
 };
 use rdp::RdpConnectionManager;
 use ssh::SshConnectionManager;
+use vnc::VncConnectionManager;
 
 /// Build and configure the Tauri application.
 ///
@@ -22,6 +25,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SshConnectionManager::new())
         .manage(RdpConnectionManager::new())
+        .manage(VncConnectionManager::new())
         .invoke_handler(tauri::generate_handler![
             get_sessions,
             save_session,
@@ -37,6 +41,11 @@ pub fn run() {
             rdp_disconnect,
             rdp_mouse_event,
             rdp_key_event,
+            vnc_connect,
+            vnc_disconnect,
+            vnc_mouse_event,
+            vnc_key_event,
+            vnc_send_clipboard,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

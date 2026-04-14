@@ -5,6 +5,7 @@ use tokio::sync::Mutex as TokioMutex;
 
 use crate::known_hosts::KnownHostsStore;
 use crate::rdp::{RdpConnectionManager, RdpKeyEvent, RdpMouseEvent};
+use crate::vnc::{VncConnectionManager, VncKeyEvent, VncMouseEvent};
 use crate::session::{self, Protocol, SshSession};
 use crate::ssh::SshConnectionManager;
 
@@ -19,6 +20,8 @@ pub enum AppError {
     Ssh(String),
     #[error("RDP error: {0}")]
     Rdp(String),
+    #[error("VNC error: {0}")]
+    Vnc(String),
     #[error("Not found: {0}")]
     NotFound(String),
     #[error("Validation error: {0}")]
@@ -410,4 +413,110 @@ pub async fn rdp_key_event(
         .send_key(&connection_id, event)
         .await
         .map_err(|e| AppError::Rdp(e.to_string()))
+}
+
+// ─── VNC connection commands ────────────────────────────────────────────────
+
+/// Response from a successful VNC connection attempt.
+#[derive(serde::Serialize)]
+pub struct VncConnectResult {
+    connection_id: String,
+}
+
+/// Start a VNC session for the session specified by `session_id`.
+#[tauri::command]
+pub async fn vnc_connect(
+    app: AppHandle,
+    vnc_manager: State<'_, VncConnectionManager>,
+    session_id: String,
+    password: Option<String>,
+) -> Result<VncConnectResult, AppError> {
+    let sessions = get_sessions().await?;
+    let session = sessions
+        .iter()
+        .find(|s| s.id == session_id)
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?
+        .clone();
+
+    if session.protocol != Protocol::Vnc {
+        return Err(AppError::Vnc("Session is not a VNC session".to_string()));
+    }
+
+    let pw = password
+        .as_deref()
+        .or(session.password.as_deref())
+        .unwrap_or("");
+
+    let connection_id = uuid::Uuid::new_v4().to_string();
+
+    let username = if session.username.is_empty() {
+        None
+    } else {
+        Some(session.username.as_str())
+    };
+
+    vnc_manager
+        .connect(
+            app,
+            &connection_id,
+            &session.host,
+            session.port,
+            pw,
+            username,
+        )
+        .await
+        .map_err(|e| AppError::Vnc(e.to_string()))?;
+
+    Ok(VncConnectResult { connection_id })
+}
+
+/// Disconnect an active VNC session and clean up resources.
+#[tauri::command]
+pub async fn vnc_disconnect(
+    vnc_manager: State<'_, VncConnectionManager>,
+    connection_id: String,
+) -> Result<(), AppError> {
+    vnc_manager
+        .disconnect(&connection_id)
+        .await
+        .map_err(|e| AppError::Vnc(e.to_string()))
+}
+
+/// Send a mouse event to an active VNC session.
+#[tauri::command]
+pub async fn vnc_mouse_event(
+    vnc_manager: State<'_, VncConnectionManager>,
+    connection_id: String,
+    event: VncMouseEvent,
+) -> Result<(), AppError> {
+    vnc_manager
+        .send_mouse(&connection_id, event)
+        .await
+        .map_err(|e| AppError::Vnc(e.to_string()))
+}
+
+/// Send a keyboard event to an active VNC session.
+#[tauri::command]
+pub async fn vnc_key_event(
+    vnc_manager: State<'_, VncConnectionManager>,
+    connection_id: String,
+    event: VncKeyEvent,
+) -> Result<(), AppError> {
+    vnc_manager
+        .send_key(&connection_id, event)
+        .await
+        .map_err(|e| AppError::Vnc(e.to_string()))
+}
+
+/// Send clipboard text to an active VNC session.
+#[tauri::command]
+pub async fn vnc_send_clipboard(
+    vnc_manager: State<'_, VncConnectionManager>,
+    connection_id: String,
+    text: String,
+) -> Result<(), AppError> {
+    vnc_manager
+        .send_clipboard(&connection_id, text)
+        .await
+        .map_err(|e| AppError::Vnc(e.to_string()))
 }

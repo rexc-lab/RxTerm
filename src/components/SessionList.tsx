@@ -37,15 +37,17 @@ export default function SessionList({
     <div className="session-list">
       {sessions.map((s) => {
         const proto = s.protocol ?? "ssh";
-        const protoBadge = proto === "rdp" ? "RDP" : "SSH";
+        const protoBadge = proto === "rdp" ? "RDP" : proto === "vnc" ? "VNC" : "SSH";
         const detail =
-          proto === "rdp"
-            ? `${s.username}@${s.host}:${s.port}`
+          proto === "vnc"
+            ? `${s.host}:${s.port}`
             : `${s.username}@${s.host}:${s.port}`;
         const tooltip =
           proto === "rdp"
             ? `${s.username}@${s.host}:${s.port} (RDP) — Double-click to connect`
-            : `${s.username}@${s.host}:${s.port} — Double-click to connect`;
+            : proto === "vnc"
+              ? `${s.host}:${s.port} (VNC) — Double-click to connect`
+              : `${s.username}@${s.host}:${s.port} — Double-click to connect`;
         const isConnected = connectedSessionIds.has(s.id);
         return (
           <div

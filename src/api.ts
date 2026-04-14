@@ -131,3 +131,56 @@ export async function rdpKeyEvent(
     event: { scancode, pressed },
   });
 }
+
+// ─── VNC connection commands ────────────────────────────────────────────────
+
+/** Start a VNC session for the given session. */
+export async function vncConnect(
+  sessionId: string,
+  password?: string,
+): Promise<{ connection_id: string }> {
+  return invoke<{ connection_id: string }>("vnc_connect", {
+    sessionId,
+    password: password ?? null,
+  });
+}
+
+/** Disconnect an active VNC session. */
+export async function vncDisconnect(connectionId: string): Promise<void> {
+  return invoke("vnc_disconnect", { connectionId });
+}
+
+/** Send a mouse event to an active VNC session. */
+export async function vncMouseEvent(
+  connectionId: string,
+  x: number,
+  y: number,
+  button: number | null,
+  pressed: boolean,
+  scrollDelta: number | null,
+): Promise<void> {
+  return invoke("vnc_mouse_event", {
+    connectionId,
+    event: { x, y, button, pressed, scroll_delta: scrollDelta },
+  });
+}
+
+/** Send a keyboard event to an active VNC session. */
+export async function vncKeyEvent(
+  connectionId: string,
+  keysym: number,
+  pressed: boolean,
+): Promise<void> {
+  return invoke("vnc_key_event", {
+    connectionId,
+    event: { keysym, pressed },
+  });
+}
+
+/** Send clipboard text to an active VNC session. */
+export async function vncSendClipboard(
+  connectionId: string,
+  text: string,
+): Promise<void> {
+  return invoke("vnc_send_clipboard", { connectionId, text });
+}

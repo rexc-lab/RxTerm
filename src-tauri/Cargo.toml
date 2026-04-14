@@ -45,6 +45,8 @@ ironrdp-tls = { version = "0.2", features = ["native-tls"] }
 ironrdp-tokio = "0.8"
 ironrdp-input = "0.5"
 tokio-native-tls = "0.3"
+# VNC client — async RFB protocol implementation
+vnc-rs = "0.5"
 
 [dev-dependencies]
 tempfile = "3"

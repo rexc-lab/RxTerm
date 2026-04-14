@@ -1,7 +1,7 @@
 /** Shared TypeScript types mirroring the Rust data model. */
 
 /** Connection protocol for a session. */
-export type Protocol = "ssh" | "rdp";
+export type Protocol = "ssh" | "rdp" | "vnc";
 
 /** Authentication method for an SSH session. */
 export type AuthMethod = "password" | "key";
@@ -85,6 +85,31 @@ export interface RdpDisconnectedPayload {
   reason: string;
 }
 
+/** Payload of a VNC frame update event from the backend. */
+export interface VncFramePayload {
+  connection_id: string;
+  full_width: number;
+  full_height: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Base64-encoded RGBA pixel data for the dirty rectangle. */
+  data: string;
+}
+
+/** Payload of the vnc-disconnected event. */
+export interface VncDisconnectedPayload {
+  connection_id: string;
+  reason: string;
+}
+
+/** Payload of the vnc-clipboard event. */
+export interface VncClipboardPayload {
+  connection_id: string;
+  text: string;
+}
+
 /** Create an empty SSH draft with sensible defaults. */
 export function emptySshDraft(): SshSessionDraft {
   return {
@@ -111,6 +136,20 @@ export function emptyRdpDraft(): SshSessionDraft {
     auth_method: "password",
     password: "",
     domain: "",
+    notes: "",
+  };
+}
+
+/** Create an empty VNC draft with sensible defaults. */
+export function emptyVncDraft(): SshSessionDraft {
+  return {
+    label: "",
+    protocol: "vnc",
+    host: "",
+    port: 5900,
+    username: "",
+    auth_method: "password",
+    password: "",
     notes: "",
   };
 }
