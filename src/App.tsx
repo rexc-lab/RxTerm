@@ -173,18 +173,34 @@ export default function App() {
 
   // ─── SSH connection handlers ─────────────────────────────────
 
+  /** True while the password dialog is open. A ref (not state) so the
+   *  guard in requestPassword cannot read a stale value from a closure. */
+  const passwordPromptOpenRef = useRef(false);
+
   /**
    * Open the password dialog and resolve with the entered password,
    * or null if the user cancelled. Sessions are returned from the
    * backend with passwords stripped, so every protocol needs a
    * connect-time prompt when no override is available.
+   *
+   * If a prompt is already open, resolves null immediately — a second
+   * connect attempt must not replace the visible dialog (leaking the
+   * first caller's promise and carrying typed input over to a dialog
+   * labeled for a different host).
    */
   const requestPassword = useCallback(
     (session: SshSession) =>
       new Promise<string | null>((resolve) => {
+        if (passwordPromptOpenRef.current) {
+          resolve(null);
+          return;
+        }
+        passwordPromptOpenRef.current = true;
+        setPasswordInput("");
         setPasswordPrompt({
           session,
           resolve: (inputPw) => {
+            passwordPromptOpenRef.current = false;
             setPasswordPrompt(null);
             setPasswordInput("");
             resolve(inputPw);
@@ -205,7 +221,14 @@ export default function App() {
           let pw = overridePassword ?? session.password;
           if (pw === undefined) {
             const entered = await requestPassword(session);
-            if (entered === null || entered === "") return; // cancelled
+            if (entered === null) return; // cancelled
+            if (entered === "") {
+              setStatus({
+                type: "error",
+                text: `Password required for ${session.label}`,
+              });
+              return;
+            }
             pw = entered;
           }
 
@@ -257,25 +280,21 @@ export default function App() {
 
       // SSH connection flow
       try {
-        const pw =
+        let pw =
           overridePassword ?? session.password ?? undefined;
 
         // If password auth but no password stored, prompt for it
         if (session.auth_method === "password" && !pw) {
-          return new Promise<void>((resolve) => {
-            setPasswordPrompt({
-              session,
-              resolve: (inputPw) => {
-                setPasswordPrompt(null);
-                setPasswordInput("");
-                if (inputPw) {
-                  handleConnect(session, inputPw).then(resolve);
-                } else {
-                  resolve();
-                }
-              },
+          const entered = await requestPassword(session);
+          if (entered === null) return; // cancelled
+          if (entered === "") {
+            setStatus({
+              type: "error",
+              text: `Password required for ${session.label}`,
             });
-          });
+            return;
+          }
+          pw = entered;
         }
 
         setStatus({ type: "success", text: `Connecting to ${session.label}…` });
