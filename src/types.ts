@@ -22,7 +22,7 @@ export interface SshSession {
   username: string;
   /** Authentication method (SSH only). */
   auth_method: AuthMethod;
-  /** Password (SSH password auth or RDP authentication). */
+  /** Password (SSH password auth, RDP, or VNC authentication). */
   password?: string;
   /** Path to the private key file (SSH key auth only). */
   private_key_path?: string;
