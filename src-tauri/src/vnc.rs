@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use base64::Engine as _;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
@@ -16,6 +16,14 @@ const MAX_VNC_CONNECTIONS: usize = 8;
 /// Default VNC desktop dimensions.
 const DEFAULT_WIDTH: u16 = 1920;
 const DEFAULT_HEIGHT: u16 = 1080;
+
+/// How often to send an incremental FramebufferUpdateRequest to the server.
+///
+/// Per RFB (RFC 6143 §7.5.3) the server only sends framebuffer updates in
+/// response to update requests; vnc-rs sends exactly one automatic request
+/// at handshake, so without this ticker the screen would freeze after the
+/// first frame. 33ms ≈ 30fps; the server coalesces requests while idle.
+const REFRESH_INTERVAL_MS: u64 = 33;
 
 /// Event name emitted when a frame region is updated.
 pub const VNC_FRAME_EVENT: &str = "vnc-frame";
@@ -122,9 +130,9 @@ impl VncConnectionManager {
     }
 
     /// Start a VNC session for the given host/port/credentials.
-    pub async fn connect(
+    pub async fn connect<R: Runtime>(
         &self,
-        app: AppHandle,
+        app: AppHandle<R>,
         connection_id: &str,
         host: &str,
         port: u16,
@@ -256,8 +264,8 @@ impl VncConnectionManager {
 // ─── Core session runner ──────────────────────────────────────────────────────
 
 /// Run a complete VNC session from connect to disconnect.
-async fn run_session(
-    app: &AppHandle,
+async fn run_session<R: Runtime>(
+    app: &AppHandle<R>,
     connection_id: &str,
     host: &str,
     port: u16,
@@ -302,12 +310,23 @@ async fn run_session(
     let mut button_mask: u8 = 0;
 
     // ── 4. Event loop ─────────────────────────────────────────────
+    let mut refresh_interval =
+        tokio::time::interval(std::time::Duration::from_millis(REFRESH_INTERVAL_MS));
+    refresh_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
     let disconnect_reason = loop {
         tokio::select! {
+            // ── Periodic incremental framebuffer update request ──
+            _ = refresh_interval.tick() => {
+                if let Err(e) = vnc.input(X11Event::Refresh).await {
+                    break format!("VNC refresh error: {}", e);
+                }
+            }
+
             // ── Server → client ──────────────────────────────────
-            event_result = vnc.poll_event() => {
+            event_result = vnc.recv_event() => {
                 match event_result {
-                    Ok(Some(event)) => {
+                    Ok(event) => {
                         match event {
                             VncEvent::SetResolution(screen) => {
                                 fb_width = screen.width;
@@ -379,9 +398,6 @@ async fn run_session(
                                 // Handle any future non_exhaustive variants
                             }
                         }
-                    }
-                    Ok(None) => {
-                        // No event available, continue polling
                     }
                     Err(e) => {
                         break format!("VNC poll error: {}", e);
@@ -518,8 +534,8 @@ fn extract_rect_from_framebuffer(
 }
 
 /// Emit frame data as tiled vnc-frame events (max 256x256 per tile).
-fn emit_frame_tiles(
-    app: &AppHandle,
+fn emit_frame_tiles<R: Runtime>(
+    app: &AppHandle<R>,
     connection_id: &str,
     fb_width: u16,
     fb_height: u16,
@@ -631,5 +647,150 @@ impl serde::Serialize for VncError {
         S: serde::Serializer,
     {
         serializer.serialize_str(&self.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    /// Incremental flags of every FramebufferUpdateRequest the stub received.
+    type FburLog = Arc<Mutex<Vec<u8>>>;
+
+    /// Minimal RFB 3.8 server: handshake with security type None, ServerInit
+    /// 800x600, then read client messages forever, logging the incremental
+    /// flag of each FramebufferUpdateRequest. Never sends framebuffer
+    /// updates (an idle, unchanging desktop).
+    async fn stub_rfb_server(listener: TcpListener, fburs: FburLog) {
+        let (mut s, _) = listener.accept().await.expect("accept");
+
+        // ProtocolVersion
+        s.write_all(b"RFB 003.008\n").await.unwrap();
+        let mut ver = [0u8; 12];
+        s.read_exact(&mut ver).await.unwrap();
+        assert_eq!(&ver, b"RFB 003.008\n", "client should negotiate RFB 3.8");
+
+        // Security: offer [None]; client picks; send SecurityResult OK
+        s.write_all(&[1u8, 1]).await.unwrap();
+        let mut chosen = [0u8; 1];
+        s.read_exact(&mut chosen).await.unwrap();
+        assert_eq!(chosen[0], 1, "client should choose security type None");
+        s.write_all(&0u32.to_be_bytes()).await.unwrap();
+
+        // ClientInit (shared flag)
+        let mut shared = [0u8; 1];
+        s.read_exact(&mut shared).await.unwrap();
+
+        // ServerInit: 800x600, 32bpp true-colour pixel format, name
+        let mut server_init = Vec::new();
+        server_init.extend_from_slice(&800u16.to_be_bytes());
+        server_init.extend_from_slice(&600u16.to_be_bytes());
+        server_init.extend_from_slice(&[
+            32, 24, 0, 1, // bpp, depth, big-endian, true-colour
+            0, 255, 0, 255, 0, 255, // r/g/b max (u16 each)
+            0, 8, 16, // r/g/b shift
+            0, 0, 0, // padding
+        ]);
+        let name = b"stub";
+        server_init.extend_from_slice(&(name.len() as u32).to_be_bytes());
+        server_init.extend_from_slice(name);
+        s.write_all(&server_init).await.unwrap();
+
+        // Message loop: parse client messages by type, log FBURs
+        loop {
+            let mut msg_type = [0u8; 1];
+            if s.read_exact(&mut msg_type).await.is_err() {
+                return; // client closed
+            }
+            match msg_type[0] {
+                0 => {
+                    // SetPixelFormat: 3 padding + 16 pixel format
+                    let mut rest = [0u8; 19];
+                    s.read_exact(&mut rest).await.unwrap();
+                }
+                2 => {
+                    // SetEncodings: 1 padding + u16 count + 4*count
+                    let mut head = [0u8; 3];
+                    s.read_exact(&mut head).await.unwrap();
+                    let count = u16::from_be_bytes([head[1], head[2]]) as usize;
+                    let mut encs = vec![0u8; count * 4];
+                    s.read_exact(&mut encs).await.unwrap();
+                }
+                3 => {
+                    // FramebufferUpdateRequest: incremental + x + y + w + h
+                    let mut rest = [0u8; 9];
+                    s.read_exact(&mut rest).await.unwrap();
+                    fburs.lock().await.push(rest[0]);
+                }
+                4 => {
+                    // KeyEvent
+                    let mut rest = [0u8; 7];
+                    s.read_exact(&mut rest).await.unwrap();
+                }
+                5 => {
+                    // PointerEvent
+                    let mut rest = [0u8; 5];
+                    s.read_exact(&mut rest).await.unwrap();
+                }
+                6 => {
+                    // ClientCutText: 3 padding + u32 len + text
+                    let mut head = [0u8; 7];
+                    s.read_exact(&mut head).await.unwrap();
+                    let len =
+                        u32::from_be_bytes([head[3], head[4], head[5], head[6]]) as usize;
+                    let mut text = vec![0u8; len];
+                    s.read_exact(&mut text).await.unwrap();
+                }
+                t => panic!("stub: unexpected client message type {}", t),
+            }
+        }
+    }
+
+    /// Regression test for the frozen-screen defect: per RFB (RFC 6143
+    /// §7.5.3) the server only sends updates in response to
+    /// FramebufferUpdateRequest messages, and vnc-rs issues exactly one
+    /// automatic (non-incremental) request at handshake. The session loop
+    /// must therefore keep sending incremental requests on its own, or the
+    /// screen freezes after the first frame.
+    ///
+    /// (The companion busy-spin defect needs no test: `recv_event()` blocks
+    /// until an event arrives, so the former `Ok(None)` spin arm no longer
+    /// exists in the loop.)
+    #[tokio::test(flavor = "multi_thread")]
+    async fn session_loop_keeps_requesting_framebuffer_updates() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let fburs: FburLog = Arc::new(Mutex::new(Vec::new()));
+        tokio::spawn(stub_rfb_server(listener, fburs.clone()));
+
+        let app = tauri::test::mock_app();
+        let handle = app.handle().clone();
+        let (input_tx, input_rx) = mpsc::channel::<VncInput>(64);
+
+        let session = tokio::spawn(async move {
+            run_session(&handle, "test-conn", "127.0.0.1", port, "", input_rx).await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+
+        let fburs = fburs.lock().await.clone();
+        assert!(
+            fburs.len() >= 2,
+            "expected the initial FBUR plus ongoing refresh requests, got {} request(s): {:?}",
+            fburs.len(),
+            fburs
+        );
+        assert!(
+            fburs.contains(&1),
+            "expected at least one incremental (=1) refresh request, got flags {:?}",
+            fburs
+        );
+
+        let _ = input_tx.send(VncInput::Disconnect).await;
+        let result = session.await.expect("session task should not panic");
+        assert_eq!(result.unwrap(), "disconnected by client");
     }
 }
