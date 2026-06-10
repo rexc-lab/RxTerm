@@ -764,7 +764,7 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
 
         let fburs: FburLog = Arc::new(Mutex::new(Vec::new()));
-        tokio::spawn(stub_rfb_server(listener, fburs.clone()));
+        let stub = tokio::spawn(stub_rfb_server(listener, fburs.clone()));
 
         let app = tauri::test::mock_app();
         let handle = app.handle().clone();
@@ -774,7 +774,25 @@ mod tests {
             run_session(&handle, "test-conn", "127.0.0.1", port, "", input_rx).await
         });
 
-        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        // Poll until the expected requests arrive; the deadline guards
+        // against stalls without paying a fixed wall-clock cost per run.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            {
+                let log = fburs.lock().await;
+                if log.len() >= 2 && log.contains(&1) {
+                    break;
+                }
+            }
+            if stub.is_finished() {
+                stub.await.expect("stub RFB server panicked");
+                panic!("stub RFB server exited before the expected requests arrived");
+            }
+            if tokio::time::Instant::now() >= deadline {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
 
         let fburs = fburs.lock().await.clone();
         assert!(
