@@ -814,7 +814,10 @@ mod tests {
         );
 
         let _ = input_tx.send(VncInput::Disconnect).await;
-        let result = session.await.expect("session task should not panic");
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), session)
+            .await
+            .expect("session did not exit within 10s of disconnect")
+            .expect("session task should not panic");
         assert_eq!(result.unwrap(), "disconnected by client");
     }
 

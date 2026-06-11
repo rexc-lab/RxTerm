@@ -10,12 +10,15 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Supersede PR runs, but let push-to-main runs finish so every merged
+  # commit gets a CI verdict and saves the cache PRs restore from.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   frontend:
     name: Frontend (tsc + vite)
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -23,7 +26,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -37,24 +40,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # ubuntu is the fast feedback loop; windows-latest matches the
-        # primary release target so platform-specific breakage is caught
-        # before tag time.
-        platform: [ubuntu-22.04, windows-latest]
+        # All three release platforms, so platform-specific breakage is
+        # caught before tag time. ubuntu is the fast feedback loop and the
+        # only clippy gate (the codebase has no cfg-gated platform code, so
+        # lints are identical everywhere; tests still compile and run on
+        # every platform).
+        platform: [ubuntu-22.04, windows-latest, macos-latest]
     runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
+        # Only the webkit/gtk dev stack needed to compile and link; the
+        # bundling-only packages (appindicator, rsvg, patchelf) stay in
+        # release.yml.
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -65,11 +70,15 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # Dependency artifacts are valid regardless of clippy/test
+          # outcome — save them so red iterations don't recompile cold.
+          cache-on-failure: true
 
       - name: Clippy
+        if: matrix.platform == 'ubuntu-22.04'
         working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: Tests
         working-directory: src-tauri
-        run: cargo test
+        run: cargo test --locked
