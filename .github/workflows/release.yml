@@ -1,14 +1,16 @@
 name: Release
 
+# Tag-triggered only: a manual workflow_dispatch run would evaluate
+# github.ref_name to a branch name and publish a real release tagged
+# "main" with 0.0.0-dev artifacts.
 on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 env:
   # Extract semver from tag (e.g. "v0.2.0" → "0.2.0").
-  # Falls back to "0.0.0-dev" for manual workflow_dispatch runs without a tag.
+  # The 0.0.0-dev fallback is defense-in-depth for non-tag refs.
   APP_VERSION: ""
 
 jobs:
@@ -233,6 +235,7 @@ jobs:
             --pattern "*.exe" \
             --pattern "*.dmg" \
             --pattern "*.deb" \
+            --pattern "*.rpm" \
             --pattern "*.AppImage" \
             --pattern "*.msi.zip" \
             --pattern "*.nsis.zip" \
