@@ -173,7 +173,44 @@ export default function App() {
 
   // ─── SSH connection handlers ─────────────────────────────────
 
-  /** Attempt to connect to a session (SSH or RDP). */
+  /** True while the password dialog is open. A ref (not state) so the
+   *  guard in requestPassword cannot read a stale value from a closure. */
+  const passwordPromptOpenRef = useRef(false);
+
+  /**
+   * Open the password dialog and resolve with the entered password,
+   * or null if the user cancelled. Sessions are returned from the
+   * backend with passwords stripped, so every protocol needs a
+   * connect-time prompt when no override is available.
+   *
+   * If a prompt is already open, resolves null immediately — a second
+   * connect attempt must not replace the visible dialog (leaking the
+   * first caller's promise and carrying typed input over to a dialog
+   * labeled for a different host).
+   */
+  const requestPassword = useCallback(
+    (session: SshSession) =>
+      new Promise<string | null>((resolve) => {
+        if (passwordPromptOpenRef.current) {
+          resolve(null);
+          return;
+        }
+        passwordPromptOpenRef.current = true;
+        setPasswordInput("");
+        setPasswordPrompt({
+          session,
+          resolve: (inputPw) => {
+            passwordPromptOpenRef.current = false;
+            setPasswordPrompt(null);
+            setPasswordInput("");
+            resolve(inputPw);
+          },
+        });
+      }),
+    [],
+  );
+
+  /** Attempt to connect to a session (SSH, RDP, or VNC). */
   const handleConnect = useCallback(
     async (session: SshSession, overridePassword?: string) => {
       const proto = session.protocol ?? "ssh";
@@ -181,8 +218,22 @@ export default function App() {
       if (proto === "rdp") {
         // RDP connection flow
         try {
+          let pw = overridePassword ?? session.password;
+          if (pw === undefined) {
+            const entered = await requestPassword(session);
+            if (entered === null) return; // cancelled
+            if (entered === "") {
+              setStatus({
+                type: "error",
+                text: `Password required for ${session.label}`,
+              });
+              return;
+            }
+            pw = entered;
+          }
+
           setStatus({ type: "success", text: `Connecting to ${session.label}…` });
-          const result = await rdpConnect(session.id, overridePassword ?? session.password);
+          const result = await rdpConnect(session.id, pw);
 
           const conn: Connection = {
             id: result.connection_id,
@@ -202,8 +253,15 @@ export default function App() {
       if (proto === "vnc") {
         // VNC connection flow
         try {
+          let pw = overridePassword ?? session.password;
+          if (pw === undefined) {
+            const entered = await requestPassword(session);
+            if (entered === null) return; // cancelled — blank is valid (no-auth servers)
+            pw = entered;
+          }
+
           setStatus({ type: "success", text: `Connecting to ${session.label}…` });
-          const result = await vncConnect(session.id, overridePassword ?? session.password);
+          const result = await vncConnect(session.id, pw);
 
           const conn: Connection = {
             id: result.connection_id,
@@ -222,25 +280,21 @@ export default function App() {
 
       // SSH connection flow
       try {
-        const pw =
+        let pw =
           overridePassword ?? session.password ?? undefined;
 
         // If password auth but no password stored, prompt for it
         if (session.auth_method === "password" && !pw) {
-          return new Promise<void>((resolve) => {
-            setPasswordPrompt({
-              session,
-              resolve: (inputPw) => {
-                setPasswordPrompt(null);
-                setPasswordInput("");
-                if (inputPw) {
-                  handleConnect(session, inputPw).then(resolve);
-                } else {
-                  resolve();
-                }
-              },
+          const entered = await requestPassword(session);
+          if (entered === null) return; // cancelled
+          if (entered === "") {
+            setStatus({
+              type: "error",
+              text: `Password required for ${session.label}`,
             });
-          });
+            return;
+          }
+          pw = entered;
         }
 
         setStatus({ type: "success", text: `Connecting to ${session.label}…` });
@@ -273,7 +327,7 @@ export default function App() {
         setStatus({ type: "error", text: String(err) });
       }
     },
-    [],
+    [requestPassword],
   );
 
   /** User accepted the unknown host key — persist and retry. */
@@ -501,8 +555,17 @@ export default function App() {
           <div className="dialog-box">
             <h3>Enter Password</h3>
             <p>
-              Password required for{" "}
-              <strong>{passwordPrompt.session.label}</strong>
+              {(passwordPrompt.session.protocol ?? "ssh") === "vnc" ? (
+                <>
+                  Password for <strong>{passwordPrompt.session.label}</strong>{" "}
+                  — leave blank if the server has no password
+                </>
+              ) : (
+                <>
+                  Password required for{" "}
+                  <strong>{passwordPrompt.session.label}</strong>
+                </>
+              )}
             </p>
             <div className="form-group">
               <input
@@ -515,7 +578,7 @@ export default function App() {
                   }
                 }}
                 autoFocus
-                placeholder="SSH password"
+                placeholder={`${(passwordPrompt.session.protocol ?? "ssh").toUpperCase()} password`}
               />
             </div>
             <div className="dialog-actions">
