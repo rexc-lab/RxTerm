@@ -55,6 +55,8 @@ export interface HostKeyInfo {
   fingerprint: string;
   key_data: string;
   algorithm: string;
+  /** True when a different key was previously accepted for this host (potential MITM). */
+  changed: boolean;
 }
 
 /** Prompt state tracked while awaiting user host-key decision. */

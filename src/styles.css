@@ -932,6 +932,15 @@ button:disabled {
   font-weight: 600;
 }
 
+/* Changed-host-key (potential MITM) variant */
+.dialog-box-danger {
+  border-color: var(--error);
+}
+
+.dialog-box .dialog-title-danger {
+  color: var(--error);
+}
+
 .dialog-box p {
   color: var(--text-secondary);
   font-size: 0.85rem;

@@ -7,6 +7,8 @@ interface HostKeyDialogProps {
   port: number;
   /** Key fingerprint to display to the user. */
   fingerprint: string;
+  /** True when a DIFFERENT key was previously accepted (potential MITM). */
+  changed: boolean;
   /** Called when the user accepts the key. */
   onAccept: () => void;
   /** Called when the user rejects the key. */
@@ -23,6 +25,7 @@ export default function HostKeyDialog({
   host,
   port,
   fingerprint,
+  changed,
   onAccept,
   onReject,
 }: HostKeyDialogProps) {
@@ -69,7 +72,7 @@ export default function HostKeyDialog({
     <div className="dialog-overlay" onClick={onReject}>
       <div
         ref={dialogRef}
-        className="dialog-box"
+        className={changed ? "dialog-box dialog-box-danger" : "dialog-box"}
         role="dialog"
         aria-modal="true"
         aria-labelledby="hk-dialog-title"
@@ -77,23 +80,64 @@ export default function HostKeyDialog({
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
-        <h3 id="hk-dialog-title">Unknown Host Key</h3>
-        <p>
-          The server at <strong>{host}:{port}</strong> presented an unrecognized
-          host key. This is normal for first-time connections, but could indicate
-          a man-in-the-middle attack if you&apos;ve connected before.
-        </p>
-        <div className="dialog-fingerprint">
-          <code>{fingerprint}</code>
-        </div>
-        <p>Do you want to trust this key and continue connecting?</p>
+        {changed ? (
+          <>
+            <h3 id="hk-dialog-title" className="dialog-title-danger">
+              ⚠ Host Key Changed
+            </h3>
+            <p>
+              <strong>
+                The host key for {host}:{port} is DIFFERENT from the key you
+                previously accepted.
+              </strong>{" "}
+              This can mean the server was reinstalled or its keys were
+              rotated — but it can also mean someone is intercepting your
+              connection (a man-in-the-middle attack).
+            </p>
+            <div className="dialog-fingerprint">
+              <code>{fingerprint}</code>
+            </div>
+            <p>
+              Do not continue unless you can verify the new key with the
+              server administrator. Accepting will permanently replace the
+              stored key.
+            </p>
+          </>
+        ) : (
+          <>
+            <h3 id="hk-dialog-title">Unknown Host Key</h3>
+            <p>
+              The server at <strong>{host}:{port}</strong> presented an
+              unrecognized host key. This is normal for first-time
+              connections, but could indicate a man-in-the-middle attack if
+              you&apos;ve connected before.
+            </p>
+            <div className="dialog-fingerprint">
+              <code>{fingerprint}</code>
+            </div>
+            <p>Do you want to trust this key and continue connecting?</p>
+          </>
+        )}
         <div className="dialog-actions">
-          <button className="btn-primary" onClick={onAccept}>
-            Accept &amp; Connect
-          </button>
-          <button className="btn-secondary" onClick={onReject}>
-            Reject
-          </button>
+          {changed ? (
+            <>
+              <button className="btn-secondary" autoFocus onClick={onReject}>
+                Reject (recommended)
+              </button>
+              <button className="btn-danger" onClick={onAccept}>
+                Replace Key &amp; Connect
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="btn-primary" onClick={onAccept}>
+                Accept &amp; Connect
+              </button>
+              <button className="btn-secondary" onClick={onReject}>
+                Reject
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

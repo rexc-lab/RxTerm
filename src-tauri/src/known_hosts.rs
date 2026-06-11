@@ -217,6 +217,68 @@ mod tests {
         (store, dir)
     }
 
+    /// Helper: generate a fresh ed25519 public key for check() tests.
+    fn generate_key() -> PublicKey {
+        russh_keys::key::KeyPair::generate_ed25519()
+            .clone_public_key()
+            .expect("clone public key")
+    }
+
+    // ── check(): Known / Unknown / Changed status ─────────────────
+
+    #[test]
+    fn check_returns_unknown_for_new_host() {
+        let (store, _dir) = temp_store();
+        let key = generate_key();
+        assert!(matches!(
+            store.check("example.com", 22, &key),
+            HostKeyStatus::Unknown { .. }
+        ));
+    }
+
+    #[test]
+    fn check_returns_known_for_accepted_key() {
+        let (store, _dir) = temp_store();
+        let key = generate_key();
+        store
+            .accept(
+                "example.com",
+                22,
+                &key.public_key_base64(),
+                &key_algorithm_name(&key),
+            )
+            .expect("accept");
+        assert!(matches!(
+            store.check("example.com", 22, &key),
+            HostKeyStatus::Known
+        ));
+    }
+
+    #[test]
+    fn check_returns_changed_for_different_key_same_host() {
+        let (store, _dir) = temp_store();
+        let original = generate_key();
+        store
+            .accept(
+                "example.com",
+                22,
+                &original.public_key_base64(),
+                &key_algorithm_name(&original),
+            )
+            .expect("accept");
+
+        let impostor = generate_key();
+        assert!(matches!(
+            store.check("example.com", 22, &impostor),
+            HostKeyStatus::Changed { .. }
+        ));
+        // A different port is a separate identity — first contact, not MITM.
+        assert!(matches!(
+            store.check("example.com", 2222, &impostor),
+            HostKeyStatus::Unknown { .. }
+        ));
+    }
+
     // ── SEC-2: Known-hosts injection ─────────────────────────────
 
     #[test]

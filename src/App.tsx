@@ -301,7 +301,11 @@ export default function App() {
         const result = await sshConnect(session.id, pw);
 
         // ROB-6: typed response — check status instead of parsing error strings
-        if (result.status === "host_key_unknown" && result.host_key) {
+        if (
+          (result.status === "host_key_unknown" ||
+            result.status === "host_key_changed") &&
+          result.host_key
+        ) {
           setHostKeyPrompt({
             host: session.host,
             port: session.port,
@@ -544,6 +548,7 @@ export default function App() {
           host={hostKeyPrompt.host}
           port={hostKeyPrompt.port}
           fingerprint={hostKeyPrompt.info.fingerprint}
+          changed={hostKeyPrompt.info.changed}
           onAccept={handleAcceptHostKey}
           onReject={() => setHostKeyPrompt(null)}
         />

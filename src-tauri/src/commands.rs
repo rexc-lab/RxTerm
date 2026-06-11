@@ -175,7 +175,9 @@ pub async fn import_sessions(json: String) -> Result<Vec<SshSession>, AppError> 
 ///
 /// The frontend checks `result.status`:
 /// - `"connected"` → connection established, `connection_id` is set
-/// - `"host_key_unknown"` → key needs approval, `host_key` is set
+/// - `"host_key_unknown"` → first-time key needs approval, `host_key` is set
+/// - `"host_key_changed"` → key DIFFERS from the stored entry (potential
+///   MITM), `host_key` is set and the UI must warn prominently
 #[derive(serde::Serialize)]
 pub struct SshConnectResult {
     pub status: String,
@@ -191,6 +193,9 @@ pub struct HostKeyInfo {
     pub fingerprint: String,
     pub key_data: String,
     pub algorithm: String,
+    /// True when a different key was previously accepted for this host
+    /// (potential MITM) — distinct from a first-time unknown key.
+    pub changed: bool,
 }
 
 /// Initiate an SSH connection to the server specified by `session_id`.
@@ -250,13 +255,19 @@ pub async fn ssh_connect(
         }),
         Err(crate::ssh::ConnectError::HostKeyUnknown(info)) => {
             // ROB-6: return structured data instead of embedding JSON in error string
+            let status = if info.changed {
+                "host_key_changed"
+            } else {
+                "host_key_unknown"
+            };
             Ok(SshConnectResult {
-                status: "host_key_unknown".to_string(),
+                status: status.to_string(),
                 connection_id: None,
                 host_key: Some(HostKeyInfo {
                     fingerprint: info.fingerprint,
                     key_data: info.key_data,
                     algorithm: info.algorithm,
+                    changed: info.changed,
                 }),
             })
         }
