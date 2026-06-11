@@ -1,6 +1,6 @@
 # RxTerm
 
-A lightweight, modern terminal and remote session management program built for daily use on Windows. RxTerm aims to provide a streamlined, minimal-setup experience for managing SSH, VNC, and RDP connections — with first-class support for split-screen layouts, tunneling, file transfers, and offline operation.
+A lightweight, modern terminal and remote session management program built for daily use on Windows. RxTerm provides a streamlined, minimal-setup experience for managing SSH, RDP, and VNC connections from a single tabbed interface, fully offline-capable.
 
 Licensed under the [GNU General Public License v3.0](LICENSE).
 
@@ -8,64 +8,71 @@ Licensed under the [GNU General Public License v3.0](LICENSE).
 
 ## Features
 
-### Remote Session Management
-- **SSH, VNC, and RDP** — Connect to remote machines using all three major protocols from a single interface.
-- **Session Saving & Export** — Save session configurations (host, port, credentials, protocol) and export/import them for backup or sharing.
-- **SSH Key Management** — Generate SSH key pairs and send public keys to remote hosts directly from the application.
+### Remote Sessions
+- **SSH terminal** — full xterm.js terminal over `russh`, with password and key-file authentication, host-key verification (distinct warning when a stored key changes), and PTY resize.
+- **RDP remote desktop** — native IronRDP client rendering to an HTML5 canvas with keyboard and mouse input.
+- **VNC remote desktop** — native Rust RFB client (`vnc-rs`) with canvas rendering, keyboard/mouse input, and bidirectional clipboard.
 
-### Terminal & Layout
-- **Split-Screen Support** — Divide the terminal view into multiple panes to work with several sessions side-by-side.
-- **tmux Detection** — Automatically check for tmux support on connected hosts and detect/attach to existing tmux sessions.
-
-### Tunneling & Port Forwarding
-- **Local & Remote Tunneling** — Set up SSH tunnels and port forwarding rules with a simple configuration interface.
-
-### File Transfer
-- **SFTP, SCP, and FTP** — Transfer files to and from remote hosts using the most common protocols, integrated into the session workflow.
-
-### Server Monitoring
-- **Resource Dashboard** — Monitor real-time memory and CPU usage on connected servers at a glance.
+### Session Management
+- **Save, edit, and organize** sessions (host, port, protocol — passwords are never persisted to disk).
+- **Export / import** session lists as JSON for backup or sharing.
+- **Tabbed layout** — run multiple sessions side by side in tabs, Windows Terminal-style.
 
 ### Design Goals
-- **Windows-First** — Built to run natively on Windows with no heavy dependencies.
-- **Minimal Setup** — Get up and running quickly — no complex installation or configuration required.
-- **Lightweight & Offline-Capable** — Small footprint with full functionality available without an internet connection.
+- **Windows-first** — native WebView2, no Electron, small footprint.
+- **Minimal setup** — portable zip needs no installation at all.
+- **Offline-capable** — full functionality without an internet connection.
 
 ---
 
-## Getting Started
+## Installation
 
-> **Note:** RxTerm is in early development. Setup instructions and release binaries will be provided as the project matures.
+Download from the [latest release](https://github.com/rexc-lab/RxTerm/releases/latest):
 
-### Prerequisites
-- Windows 10 or later
+- **Windows installer** — `RxTerm_<version>_x64_en-US.msi` or the `.exe` (NSIS) installer
+- **Windows portable** — `RxTerm_<version>_windows_portable.zip`: unzip and run `rxterm.exe`, no installation required (settings live in `%APPDATA%\RxTerm\`)
+- macOS (`.dmg`, universal) and Linux (`.deb` / `.rpm` / `.AppImage`) builds are published too, though Windows is the primary target
 
-### Installation
-_Coming soon._
+SHA-256 checksums (`checksums-sha256.txt`) accompany every release. Binaries are not yet code-signed, so Windows SmartScreen may prompt on first run.
 
-### Usage
-_Coming soon._
+### Building from source
+
+```bash
+npm ci
+npx tauri dev     # development window with hot reload
+npx tauri build   # release bundle
+```
+
+Requires Node 22+, Rust stable, and on Linux the WebKitGTK dev stack (see `.github/workflows/ci.yml`).
 
 ---
 
 ## Roadmap
 
-- [ ] Core terminal emulator with split-screen panes
-- [ ] SSH session management and connection handling
-- [ ] VNC and RDP session integration
-- [ ] Session save/load/export functionality
+Shipped:
+
+- [x] SSH session management and connection handling
+- [x] RDP and VNC session integration
+- [x] Session save/load/export functionality
+- [x] Tabbed session layout
+- [x] Offline-capable packaging (portable zip)
+
+Planned (not yet implemented):
+
+- [ ] Split-screen panes
 - [ ] SSH key generation and deployment
 - [ ] SSH tunneling and port forwarding
-- [ ] SFTP / SCP / FTP file transfer
+- [ ] SFTP / SCP file transfer
 - [ ] tmux detection and session attachment
 - [ ] Server resource monitoring (CPU & memory)
-- [ ] Offline-capable packaging
+- [ ] Auto-update
+- [ ] Code-signed binaries
 
 ---
 
 ## Contributing
 
-Contributions are welcome. Please open an issue to discuss proposed changes before submitting a pull request.
+Contributions are welcome. Please open an issue to discuss proposed changes before submitting a pull request. Every PR is validated by CI (`tsc`, `cargo clippy -D warnings`, and the test suite on Windows, Linux, and macOS).
 
 ---
 

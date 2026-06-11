@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RxTerm is a lightweight desktop terminal and remote session management application targeting Windows. It supports SSH, VNC, and RDP connections from a single interface with session saving, split-screen layouts, and offline operation.
+RxTerm is a lightweight desktop terminal and remote session management application targeting Windows. It supports SSH, VNC, and RDP connections from a single interface with session saving, tabbed sessions, and offline operation.
 
 **Tech stack:** Tauri 2.0 (Rust backend) + React + TypeScript (frontend), licensed GPL-3.0.
 
@@ -29,12 +29,14 @@ cd src-tauri && cargo test             # run Rust unit tests
 cd src-tauri && cargo clippy           # lint (no config file — uses defaults)
 
 # Windows release script
-.\build-release.ps1 -Version 0.5.1
+.\build-release.ps1 -Version 0.6.0
 ```
 
 The Vite dev server is hardcoded to `127.0.0.1:25326` (IPv4) to avoid Windows IPv6 bind issues. Tauri expects this exact port via `tauri.conf.json`.
 
-There is no frontend test runner, no ESLint/Prettier config, and no Rust `rustfmt.toml`. The project relies on `tsc --strict` for frontend checks and `cargo clippy` for backend linting.
+There is no frontend test runner, no ESLint/Prettier config, and no Rust `rustfmt.toml`. The project relies on `tsc --strict` for frontend checks and `cargo clippy -- -D warnings` for backend linting (CI gates on both). Rust unit tests live in `#[cfg(test)]` modules (`session.rs`, `known_hosts.rs`, `vnc.rs` — the VNC tests drive the real session loop against an in-test RFB stub server using `tauri::test::mock_app()`).
+
+Note: `cargo test` on Windows requires the app manifest embedded into test executables — `build.rs` handles this (see the `windows-app-manifest.xml` comment); do not remove it or tests crash with `STATUS_ENTRYPOINT_NOT_FOUND`.
 
 ## Architecture
 
@@ -52,7 +54,7 @@ When adding a new command:
 
 Each protocol has a dedicated manager registered as Tauri managed state (`tauri::manage()`):
 - **`SshConnectionManager`** (`ssh.rs`) — russh sessions, PTY channels, and reader tasks
-- **`VncConnectionManager`** (`vnc.rs`) — localhost WebSocket-to-TCP proxy per connection; frontend noVNC connects to the proxy
+- **`VncConnectionManager`** (`vnc.rs`) — native `vnc-rs` RFB client per connection; runs the protocol in a tokio task, maintains a local framebuffer, sends incremental refresh requests on a ticker, and emits tiled (256×256) base64-RGBA `vnc-frame` events rendered by the canvas-based `VncPane`
 - **`RdpConnectionManager`** (`rdp.rs`) — IronRDP sessions, emits `rdp-frame` events with RGBA pixel data
 
 All managers use `Arc<Mutex<HashMap<String, ...>>>` for thread-safe connection tracking keyed by UUID connection IDs.
@@ -62,6 +64,7 @@ All managers use `Arc<Mutex<HashMap<String, ...>>>` for thread-safe connection t
 Tauri events for real-time data:
 - `ssh-output-{connection_id}` / `ssh-closed-{connection_id}` — terminal data and disconnection
 - `rdp-frame` / `rdp-disconnected` — RDP frame updates (dirty rectangles) and session end
+- `vnc-frame` / `vnc-disconnected` / `vnc-clipboard` — tiled VNC frame updates, session end (with reason), and server clipboard text
 
 ### Frontend State
 
@@ -99,11 +102,13 @@ The version string lives in three files that must stay in sync:
 - `src-tauri/tauri.conf.json` → `version`
 - `src-tauri/Cargo.toml` → `version`
 
-The CI release workflow and `build-release.ps1` handle this automatically from a git tag. For local dev, keep them consistent manually.
+The CI release workflow patches all three automatically from the git tag at build time (`build-release.ps1` patches only `package.json` and `tauri.conf.json` — bump `Cargo.toml` yourself when using it). For local dev, keep them consistent manually.
 
 ## CI/CD
 
-The release workflow (`.github/workflows/release.yml`) triggers on `v*` tags and builds for Windows, macOS (universal binary), and Linux using `tauri-apps/tauri-action`. It also produces a Windows portable zip and SHA-256 checksums. Code signing is scaffolded but currently disabled.
+Every pull request and push to main runs `.github/workflows/ci.yml`: frontend `tsc && vite build`, plus `cargo clippy --all-targets --locked -- -D warnings` and `cargo test --locked` on ubuntu, windows, and macos.
+
+The release workflow (`.github/workflows/release.yml`) triggers on `v*` tags only and builds for Windows, macOS (universal binary), and Linux using `tauri-apps/tauri-action`. It also produces a Windows portable zip and SHA-256 checksums. Code signing is scaffolded but currently disabled, and the auto-updater config in `tauri.conf.json` is inert until an update-signing keypair is provisioned.
 
 ## Things to Avoid
 

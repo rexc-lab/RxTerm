@@ -7,10 +7,11 @@ Tauri 2.0 (Rust backend) + React + TypeScript (frontend).
 
 ## Project Context
 - **Framework**: Tauri 2.0, Tokio async runtime
-- **Protocols**: SSH/SFTP/SCP via `russh`, RDP via `IronRDP`, VNC via noVNC + 
-  Rust Websockify sidecar
+- **Protocols**: SSH via `russh`, RDP via `IronRDP`, VNC via `vnc-rs`
+  (native Rust RFB client; frames rendered to an HTML5 canvas)
 - **Frontend**: React + TypeScript + xterm.js for terminal panes
-- **Storage**: SQLite via `tauri-plugin-sql` for session management
+- **Storage**: JSON file (`%APPDATA%/RxTerm/sessions.json`) guarded by a
+  global async mutex — no database
 - **Target**: Windows (WebView2), offline-capable, minimal install (~10MB)
 
 ## Coding Standards

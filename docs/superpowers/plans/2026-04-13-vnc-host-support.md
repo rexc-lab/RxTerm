@@ -35,7 +35,7 @@
 - Modify: `src-tauri/Cargo.toml`
 - Modify: `src-tauri/src/session.rs`
 
-- [ ] **Step 1: Add vnc-rs to Cargo.toml**
+- [x] **Step 1: Add vnc-rs to Cargo.toml**
 
 In `src-tauri/Cargo.toml`, add to the `[dependencies]` section after the `tokio-native-tls` line:
 
@@ -44,7 +44,7 @@ In `src-tauri/Cargo.toml`, add to the `[dependencies]` section after the `tokio-
 vnc-rs = "0.5"
 ```
 
-- [ ] **Step 2: Add Vnc variant to Protocol enum in session.rs**
+- [x] **Step 2: Add Vnc variant to Protocol enum in session.rs**
 
 In `src-tauri/src/session.rs`, change the `Protocol` enum from:
 
@@ -70,12 +70,12 @@ pub enum Protocol {
 }
 ```
 
-- [ ] **Step 3: Verify it compiles**
+- [x] **Step 3: Verify it compiles**
 
 Run: `cd src-tauri && cargo check`
 Expected: Compiles successfully (may have warnings about unused `Vnc` variant — that's fine at this stage).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/src/session.rs
@@ -90,7 +90,7 @@ git commit -m "feat: add vnc-rs dependency and Protocol::Vnc variant"
 - Create: `src-tauri/src/vnc.rs`
 - Modify: `src-tauri/src/lib.rs`
 
-- [ ] **Step 1: Create vnc.rs with types, error, and manager skeleton**
+- [x] **Step 1: Create vnc.rs with types, error, and manager skeleton**
 
 Create `src-tauri/src/vnc.rs`:
 
@@ -743,7 +743,7 @@ impl serde::Serialize for VncError {
 }
 ```
 
-- [ ] **Step 2: Register the vnc module in lib.rs**
+- [x] **Step 2: Register the vnc module in lib.rs**
 
 In `src-tauri/src/lib.rs`, add `pub mod vnc;` after the existing module declarations:
 
@@ -766,12 +766,12 @@ pub mod ssh;
 pub mod vnc;
 ```
 
-- [ ] **Step 3: Verify it compiles**
+- [x] **Step 3: Verify it compiles**
 
 Run: `cd src-tauri && cargo check`
 Expected: Compiles successfully. The `vnc` module is registered but its manager is not yet wired into commands.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src-tauri/src/vnc.rs src-tauri/src/lib.rs
@@ -786,7 +786,7 @@ git commit -m "feat: add VncConnectionManager with session runner and framebuffe
 - Modify: `src-tauri/src/commands.rs`
 - Modify: `src-tauri/src/lib.rs`
 
-- [ ] **Step 1: Add VNC imports and AppError::Vnc to commands.rs**
+- [x] **Step 1: Add VNC imports and AppError::Vnc to commands.rs**
 
 In `src-tauri/src/commands.rs`, add the VNC import to the existing use block. Change:
 
@@ -841,7 +841,7 @@ pub enum AppError {
 }
 ```
 
-- [ ] **Step 2: Add VNC command functions to commands.rs**
+- [x] **Step 2: Add VNC command functions to commands.rs**
 
 Append the following after the RDP commands section at the end of `commands.rs`:
 
@@ -953,7 +953,7 @@ pub async fn vnc_send_clipboard(
 }
 ```
 
-- [ ] **Step 3: Register VNC manager and commands in lib.rs**
+- [x] **Step 3: Register VNC manager and commands in lib.rs**
 
 In `src-tauri/src/lib.rs`, update the imports. Change:
 
@@ -1043,12 +1043,12 @@ To:
         ])
 ```
 
-- [ ] **Step 4: Verify it compiles**
+- [x] **Step 4: Verify it compiles**
 
 Run: `cd src-tauri && cargo check`
 Expected: Compiles successfully. All VNC commands are registered and wired up.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/commands.rs src-tauri/src/lib.rs
@@ -1063,7 +1063,7 @@ git commit -m "feat: add VNC Tauri commands and register manager"
 - Modify: `src/types.ts`
 - Modify: `src/api.ts`
 
-- [ ] **Step 1: Update Protocol type and add VNC types in types.ts**
+- [x] **Step 1: Update Protocol type and add VNC types in types.ts**
 
 In `src/types.ts`, change the Protocol type:
 
@@ -1124,7 +1124,7 @@ export function emptyVncDraft(): SshSessionDraft {
 }
 ```
 
-- [ ] **Step 2: Add VNC API wrappers in api.ts**
+- [x] **Step 2: Add VNC API wrappers in api.ts**
 
 In `src/api.ts`, add the VNC section after the RDP commands. Also add `emptyVncDraft` to any needed imports if the file imports from types (it currently doesn't import draft helpers, so no import change needed).
 
@@ -1185,12 +1185,12 @@ export async function vncSendClipboard(
 }
 ```
 
-- [ ] **Step 3: Verify frontend compiles**
+- [x] **Step 3: Verify frontend compiles**
 
 Run: `npm run build`
 Expected: TypeScript compilation succeeds (the new types and functions are exported but not yet consumed by components).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/types.ts src/api.ts
@@ -1204,7 +1204,7 @@ git commit -m "feat: add VNC types and API wrappers to frontend"
 **Files:**
 - Create: `src/components/VncPane.tsx`
 
-- [ ] **Step 1: Create VncPane.tsx**
+- [x] **Step 1: Create VncPane.tsx**
 
 Create `src/components/VncPane.tsx`:
 
@@ -1495,12 +1495,12 @@ export default function VncPane({ connectionId, onDisconnected, onReconnect }: V
 }
 ```
 
-- [ ] **Step 2: Verify frontend compiles**
+- [x] **Step 2: Verify frontend compiles**
 
 Run: `npm run build`
 Expected: TypeScript compilation succeeds.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/components/VncPane.tsx
@@ -1514,7 +1514,7 @@ git commit -m "feat: add VncPane canvas-based VNC viewer component"
 **Files:**
 - Modify: `src/components/SshSessionForm.tsx`
 
-- [ ] **Step 1: Add VNC import and protocol option**
+- [x] **Step 1: Add VNC import and protocol option**
 
 In `src/components/SshSessionForm.tsx`, update the import to include `emptyVncDraft`:
 
@@ -1522,7 +1522,7 @@ In `src/components/SshSessionForm.tsx`, update the import to include `emptyVncDr
 import { emptySshDraft, emptyRdpDraft, emptyVncDraft } from "../types";
 ```
 
-- [ ] **Step 2: Add VNC to handleProtocolChange**
+- [x] **Step 2: Add VNC to handleProtocolChange**
 
 Change the `handleProtocolChange` function from:
 
@@ -1566,7 +1566,7 @@ To:
   };
 ```
 
-- [ ] **Step 3: Add VNC option to protocol dropdown**
+- [x] **Step 3: Add VNC option to protocol dropdown**
 
 Change the protocol select from:
 
@@ -1595,7 +1595,7 @@ To:
         </select>
 ```
 
-- [ ] **Step 4: Add isVnc variable and VNC-specific form fields**
+- [x] **Step 4: Add isVnc variable and VNC-specific form fields**
 
 After the existing `isRdp` variable:
 
@@ -1645,12 +1645,12 @@ Add a VNC fields block after the RDP fields block (after the closing `</>` of `{
       )}
 ```
 
-- [ ] **Step 5: Verify frontend compiles**
+- [x] **Step 5: Verify frontend compiles**
 
 Run: `npm run build`
 Expected: TypeScript compilation succeeds.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/SshSessionForm.tsx
@@ -1664,7 +1664,7 @@ git commit -m "feat: add VNC protocol option to session form"
 **Files:**
 - Modify: `src/components/SessionList.tsx`
 
-- [ ] **Step 1: Update protocol badge logic**
+- [x] **Step 1: Update protocol badge logic**
 
 In `src/components/SessionList.tsx`, change the `protoBadge` assignment from:
 
@@ -1678,7 +1678,7 @@ To:
         const protoBadge = proto === "rdp" ? "RDP" : proto === "vnc" ? "VNC" : "SSH";
 ```
 
-- [ ] **Step 2: Update tooltip**
+- [x] **Step 2: Update tooltip**
 
 Change the tooltip from:
 
@@ -1700,7 +1700,7 @@ To:
               : `${s.username}@${s.host}:${s.port} — Double-click to connect`;
 ```
 
-- [ ] **Step 3: Update detail display for VNC (no username required)**
+- [x] **Step 3: Update detail display for VNC (no username required)**
 
 Change the detail from:
 
@@ -1720,12 +1720,12 @@ To:
             : `${s.username}@${s.host}:${s.port}`;
 ```
 
-- [ ] **Step 4: Verify frontend compiles**
+- [x] **Step 4: Verify frontend compiles**
 
 Run: `npm run build`
 Expected: TypeScript compilation succeeds.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/SessionList.tsx
@@ -1739,7 +1739,7 @@ git commit -m "feat: add VNC protocol badge to session list"
 **Files:**
 - Modify: `src/App.tsx`
 
-- [ ] **Step 1: Add VNC imports**
+- [x] **Step 1: Add VNC imports**
 
 Update the component import at the top of `App.tsx`. Change:
 
@@ -1790,7 +1790,7 @@ import {
 } from "./api";
 ```
 
-- [ ] **Step 2: Add VNC connection flow to handleConnect**
+- [x] **Step 2: Add VNC connection flow to handleConnect**
 
 In the `handleConnect` function, add a VNC branch before the SSH flow. Change:
 
@@ -1863,7 +1863,7 @@ To:
       }
 ```
 
-- [ ] **Step 3: Add VNC disconnect to handleDisconnect**
+- [x] **Step 3: Add VNC disconnect to handleDisconnect**
 
 Update the `handleDisconnect` function. Change:
 
@@ -1887,7 +1887,7 @@ To:
       }
 ```
 
-- [ ] **Step 4: Add VncPane to tab content rendering**
+- [x] **Step 4: Add VncPane to tab content rendering**
 
 Update the tab content area where panes are rendered. Change:
 
@@ -1941,12 +1941,12 @@ To:
                   )}
 ```
 
-- [ ] **Step 5: Verify frontend compiles**
+- [x] **Step 5: Verify frontend compiles**
 
 Run: `npm run build`
 Expected: TypeScript compilation succeeds with no errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/App.tsx
@@ -1959,22 +1959,22 @@ git commit -m "feat: wire VNC connection flow and VncPane into App"
 
 **Files:** None (verification only)
 
-- [ ] **Step 1: Run Rust checks**
+- [x] **Step 1: Run Rust checks**
 
 Run: `cd src-tauri && cargo clippy`
 Expected: No errors. Fix any clippy warnings.
 
-- [ ] **Step 2: Run TypeScript checks**
+- [x] **Step 2: Run TypeScript checks**
 
 Run: `npm run build`
 Expected: Clean build with no errors.
 
-- [ ] **Step 3: Run Rust tests**
+- [x] **Step 3: Run Rust tests**
 
 Run: `cd src-tauri && cargo test`
 Expected: All existing tests pass (session validation, host validation, password serialization).
 
-- [ ] **Step 4: Start dev server and verify UI**
+- [x] **Step 4: Start dev server and verify UI**
 
 Run: `npx tauri dev`
 Expected:
@@ -1984,7 +1984,7 @@ Expected:
 - VNC session can be saved and appears in the session list with "VNC" badge
 - Session list shows `host:port` format for VNC (no username prefix)
 
-- [ ] **Step 5: Final commit if any fixes were needed**
+- [x] **Step 5: Final commit if any fixes were needed**
 
 ```bash
 git add -A
