@@ -811,4 +811,200 @@ mod tests {
         let result = session.await.expect("session task should not panic");
         assert_eq!(result.unwrap(), "disconnected by client");
     }
+
+    // ─── Failure-scenario tests ──────────────────────────────────────
+    //
+    // connect() is asynchronous by design: it returns Ok after spawning
+    // the session task, and failures surface as a vnc-disconnected event
+    // plus removal from the session map. These tests assert both halves.
+
+    /// Subscribe to vnc-disconnected events on a mock app handle.
+    fn disconnected_events<R: Runtime>(
+        handle: &AppHandle<R>,
+    ) -> tokio::sync::mpsc::UnboundedReceiver<String> {
+        use tauri::Listener;
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        handle.listen(VNC_DISCONNECTED_EVENT, move |event| {
+            let _ = tx.send(event.payload().to_string());
+        });
+        rx
+    }
+
+    /// Wait until the manager's session map is empty (cleanup runs after
+    /// the disconnect event is emitted).
+    async fn wait_for_cleanup(manager: &VncConnectionManager) {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if manager.sessions.lock().await.is_empty() {
+                return;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "session map was not cleaned up after failure"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn connect_rejects_invalid_host_synchronously() {
+        let app = tauri::test::mock_app();
+        let manager = VncConnectionManager::new();
+        let result = manager
+            .connect(app.handle().clone(), "conn-bad-host", "bad;host", 5900, "", None)
+            .await;
+        assert!(matches!(result, Err(VncError::InvalidHost(_))));
+        assert!(manager.sessions.lock().await.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn refused_connection_emits_disconnected_and_cleans_up() {
+        // Bind to reserve a free port, then close it so connects are refused.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+
+        let app = tauri::test::mock_app();
+        let handle = app.handle().clone();
+        let mut events = disconnected_events(&handle);
+
+        let manager = VncConnectionManager::new();
+        manager
+            .connect(handle, "conn-refused", "127.0.0.1", port, "", None)
+            .await
+            .expect("connect() returns Ok; failures surface via events");
+
+        let payload = tokio::time::timeout(std::time::Duration::from_secs(5), events.recv())
+            .await
+            .expect("vnc-disconnected was not emitted for a refused connection")
+            .expect("event channel closed");
+        assert!(payload.contains("conn-refused"), "payload routes by id: {payload}");
+        assert!(
+            payload.contains("TCP connect"),
+            "reason should describe the connect failure: {payload}"
+        );
+        wait_for_cleanup(&manager).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn non_vnc_server_fails_handshake() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            // 12+ bytes that are not an RFB ProtocolVersion string
+            let _ = s.write_all(b"HTTP/1.1 400 Bad Request\r\n\r\n").await;
+        });
+
+        let app = tauri::test::mock_app();
+        let handle = app.handle().clone();
+        let mut events = disconnected_events(&handle);
+
+        let manager = VncConnectionManager::new();
+        manager
+            .connect(handle, "conn-not-vnc", "127.0.0.1", port, "", None)
+            .await
+            .expect("connect() returns Ok; failures surface via events");
+
+        let payload = tokio::time::timeout(std::time::Duration::from_secs(5), events.recv())
+            .await
+            .expect("vnc-disconnected was not emitted for a non-VNC server")
+            .expect("event channel closed");
+        assert!(payload.contains("conn-not-vnc"), "payload routes by id: {payload}");
+        wait_for_cleanup(&manager).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rejected_password_emits_auth_failure() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            s.write_all(b"RFB 003.008\n").await.unwrap();
+            let mut ver = [0u8; 12];
+            s.read_exact(&mut ver).await.unwrap();
+            // Offer VNC Authentication only; reject whatever the client sends
+            s.write_all(&[1u8, 2]).await.unwrap();
+            let mut chosen = [0u8; 1];
+            s.read_exact(&mut chosen).await.unwrap();
+            assert_eq!(chosen[0], 2, "client should choose VncAuth");
+            s.write_all(&[0u8; 16]).await.unwrap(); // DES challenge
+            let mut response = [0u8; 16];
+            s.read_exact(&mut response).await.unwrap();
+            s.write_all(&1u32.to_be_bytes()).await.unwrap(); // SecurityResult: failed
+            let reason = b"authentication failure";
+            s.write_all(&(reason.len() as u32).to_be_bytes()).await.unwrap();
+            s.write_all(reason).await.unwrap();
+            // close: the client reads the reason text until EOF
+        });
+
+        let app = tauri::test::mock_app();
+        let handle = app.handle().clone();
+        let mut events = disconnected_events(&handle);
+
+        let manager = VncConnectionManager::new();
+        manager
+            .connect(handle, "conn-bad-pw", "127.0.0.1", port, "wrong-password", None)
+            .await
+            .expect("connect() returns Ok; failures surface via events");
+
+        let payload = tokio::time::timeout(std::time::Duration::from_secs(5), events.recv())
+            .await
+            .expect("vnc-disconnected was not emitted for rejected auth")
+            .expect("event channel closed");
+        assert!(payload.contains("conn-bad-pw"), "payload routes by id: {payload}");
+        assert!(
+            payload.contains("authentication failure"),
+            "reason should carry the server's auth error: {payload}"
+        );
+        wait_for_cleanup(&manager).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn mid_session_server_close_emits_disconnected() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            // Full None-auth handshake + ServerInit, then drop the socket.
+            s.write_all(b"RFB 003.008\n").await.unwrap();
+            let mut ver = [0u8; 12];
+            s.read_exact(&mut ver).await.unwrap();
+            s.write_all(&[1u8, 1]).await.unwrap();
+            let mut chosen = [0u8; 1];
+            s.read_exact(&mut chosen).await.unwrap();
+            s.write_all(&0u32.to_be_bytes()).await.unwrap();
+            let mut shared = [0u8; 1];
+            s.read_exact(&mut shared).await.unwrap();
+            let mut server_init = Vec::new();
+            server_init.extend_from_slice(&800u16.to_be_bytes());
+            server_init.extend_from_slice(&600u16.to_be_bytes());
+            server_init.extend_from_slice(&[
+                32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 0, 8, 16, 0, 0, 0,
+            ]);
+            server_init.extend_from_slice(&4u32.to_be_bytes());
+            server_init.extend_from_slice(b"stub");
+            s.write_all(&server_init).await.unwrap();
+            // Read one message so the session is established, then close.
+            let mut first = [0u8; 1];
+            let _ = s.read_exact(&mut first).await;
+        });
+
+        let app = tauri::test::mock_app();
+        let handle = app.handle().clone();
+        let mut events = disconnected_events(&handle);
+
+        let manager = VncConnectionManager::new();
+        manager
+            .connect(handle, "conn-eof", "127.0.0.1", port, "", None)
+            .await
+            .expect("connect() returns Ok; failures surface via events");
+
+        let payload = tokio::time::timeout(std::time::Duration::from_secs(5), events.recv())
+            .await
+            .expect("vnc-disconnected was not emitted after server close")
+            .expect("event channel closed");
+        assert!(payload.contains("conn-eof"), "payload routes by id: {payload}");
+        wait_for_cleanup(&manager).await;
+    }
 }
