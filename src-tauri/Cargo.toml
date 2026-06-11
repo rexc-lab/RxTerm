@@ -1,6 +1,6 @@
 [package]
 name = "rxterm"
-version = "0.5.1"
+version = "0.6.0"
 description = "A lightweight terminal and remote session management application"
 authors = ["RxTerm Contributors"]
 edition = "2021"

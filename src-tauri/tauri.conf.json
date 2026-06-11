@@ -1,11 +1,11 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
   "productName": "RxTerm",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "identifier": "com.rxterm.app",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:25326",
+    "devUrl": "http://127.0.0.1:25326",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:25326"
     }
   },
   "bundle": {
