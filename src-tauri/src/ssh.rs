@@ -54,6 +54,12 @@ pub struct SshConnectionManager {
     connections: Arc<Mutex<HashMap<String, SshConnection>>>,
 }
 
+impl Default for SshConnectionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SshConnectionManager {
     pub fn new() -> Self {
         Self {
@@ -63,6 +69,7 @@ impl SshConnectionManager {
 
     /// Open an SSH connection, authenticate, request a PTY, and start
     /// streaming output to the frontend via Tauri events.
+    #[allow(clippy::too_many_arguments)]
     pub async fn connect(
         &self,
         app: &AppHandle,

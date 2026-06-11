@@ -121,6 +121,12 @@ pub struct VncConnectionManager {
     sessions: Arc<Mutex<HashMap<String, VncSession>>>,
 }
 
+impl Default for VncConnectionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VncConnectionManager {
     #[must_use]
     pub fn new() -> Self {

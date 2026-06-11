@@ -1,21 +1,16 @@
 use serde::{Deserialize, Serialize};
 
 /// Connection protocol for a session.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Protocol {
     /// SSH terminal session.
+    #[default]
     Ssh,
     /// RDP remote desktop session.
     Rdp,
     /// VNC remote desktop session.
     Vnc,
-}
-
-impl Default for Protocol {
-    fn default() -> Self {
-        Self::Ssh
-    }
 }
 
 /// Authentication method for an SSH session.
