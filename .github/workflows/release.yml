@@ -212,9 +212,81 @@ jobs:
             --repo "${{ github.repository }}" \
             --clobber
 
+  # ── Windows code signing (SignPath) ─────────────────────────────────
+  #
+  # Signs the NSIS (.exe) and MSI installers via SignPath's remote signing
+  # service and re-uploads the signed versions to the release. INERT until
+  # SignPath is fully set up: it only runs when the repository variable
+  # SIGNING_ENABLED is 'true'. Until then, releases ship unsigned and this
+  # job is skipped — see docs/SIGNING.md for the one-time setup.
+  #
+  # NOTE: this signs the installers, not the bare rxterm.exe inside the
+  # portable zip (that needs signing before zipping — a follow-up).
+  sign-windows:
+    name: Sign Windows installers (SignPath)
+    needs: build
+    if: vars.SIGNING_ENABLED == 'true'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download unsigned Windows installers from the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          mkdir -p unsigned
+          # Wait briefly for the release to be fully published by the build job.
+          sleep 10
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --dir unsigned \
+            --pattern "*.exe" \
+            --pattern "*.msi" \
+            --clobber
+
+      - name: Upload unsigned installers as a workflow artifact
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: rxterm-windows-unsigned
+          path: unsigned/
+          if-no-files-found: error
+
+      - name: Submit signing request to SignPath
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          connector-url: ${{ vars.SIGNPATH_CONNECTOR_URL }}
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Re-upload signed installers to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          # The signed artifact preserves the uploaded directory layout.
+          gh release upload "$TAG" signed/*.exe signed/*.msi \
+            --repo "${{ github.repository }}" \
+            --clobber
+
   # ── Checksums ───────────────────────────────────────────────────────
   checksums:
-    needs: build
+    # Runs after signing when it is enabled (so checksums cover the signed
+    # binaries), or directly after build when signing is skipped. A FAILED
+    # signing job blocks checksums so a half-signed release is never hashed.
+    needs: [build, sign-windows]
+    if: >-
+      ${{ always()
+      && needs.build.result == 'success'
+      && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write

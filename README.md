@@ -33,7 +33,16 @@ Download from the [latest release](https://github.com/rexc-lab/RxTerm/releases/l
 - **Windows portable** — `RxTerm_<version>_windows_portable.zip`: unzip and run `rxterm.exe`, no installation required (settings live in `%APPDATA%\RxTerm\`)
 - macOS (`.dmg`, universal) and Linux (`.deb` / `.rpm` / `.AppImage`) builds are published too, though Windows is the primary target
 
-SHA-256 checksums (`checksums-sha256.txt`) accompany every release. Binaries are not yet code-signed, so Windows SmartScreen may prompt on first run.
+SHA-256 checksums (`checksums-sha256.txt`) accompany every release.
+
+**Windows SmartScreen note:** on first run Windows may show "Windows
+protected your PC." This is expected for a newer app that hasn't yet built
+download reputation — click **More info → Run anyway** after confirming the
+publisher. (You can also right-click the download → Properties → **Unblock**
+before running.) Installers are being code-signed via SignPath; the
+"Unknown Publisher" label clears with signing, while the SmartScreen
+reputation prompt fades as more people install over time. See
+[docs/SIGNING.md](docs/SIGNING.md) for details.
 
 ### Building from source
 
