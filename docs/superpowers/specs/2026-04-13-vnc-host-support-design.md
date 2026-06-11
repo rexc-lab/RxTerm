@@ -1,7 +1,7 @@
 # VNC Host Support — Design Spec
 
 **Date:** 2026-04-13
-**Status:** Approved
+**Status:** Implemented (merged via PR #11, 2026-04-14)
 **Approach:** Pure Rust VNC client using `vnc-rs` crate (Approach A)
 
 ## Summary
