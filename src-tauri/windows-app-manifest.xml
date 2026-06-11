@@ -1,0 +1,21 @@
+<!--
+  Vendored from tauri-build 2.5.6 (src/windows-app-manifest.xml).
+  Embedded into ALL Windows link targets by build.rs — including test
+  executables, which tauri-build's default per-bin embedding misses —
+  so `cargo test` does not crash with STATUS_ENTRYPOINT_NOT_FOUND.
+  See https://github.com/tauri-apps/tauri/pull/4383#issuecomment-1212221864
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="*"
+        publicKeyToken="6595b64144ccf1df"
+        language="*"
+      />
+    </dependentAssembly>
+  </dependency>
+</assembly>

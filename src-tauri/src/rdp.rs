@@ -114,6 +114,12 @@ pub struct RdpConnectionManager {
     sessions: Arc<Mutex<HashMap<String, RdpSession>>>,
 }
 
+impl Default for RdpConnectionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RdpConnectionManager {
     #[must_use]
     pub fn new() -> Self {
@@ -135,6 +141,7 @@ impl RdpConnectionManager {
     /// * `username`     – Windows username.
     /// * `password`     – Windows password.
     /// * `domain`       – Optional Windows domain name.
+    #[allow(clippy::too_many_arguments)]
     pub async fn connect(
         &self,
         app: AppHandle,
@@ -319,6 +326,7 @@ impl NetworkClient for NoNetworkClient {
 /// Returns the disconnect reason string on success, or an [`RdpError`] if
 /// connection setup fails. Once the active-stage loop starts, all errors are
 /// handled internally and reported via Tauri events.
+#[allow(clippy::too_many_arguments)]
 async fn run_session(
     app: &AppHandle,
     connection_id: &str,
