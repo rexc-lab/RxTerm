@@ -30,11 +30,19 @@ export default function HostKeyDialog({
   onReject,
 }: HostKeyDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const rejectRef = useRef<HTMLButtonElement>(null);
 
-  // Focus the dialog when it mounts
+  // On mount, focus Reject for the changed-key (danger) variant so the
+  // safe action is the keyboard default; otherwise focus the dialog
+  // container. This effect runs after React's commit-phase autoFocus, so
+  // it — not a button autoFocus attribute — decides the initial focus.
   useEffect(() => {
-    dialogRef.current?.focus();
-  }, []);
+    if (changed && rejectRef.current) {
+      rejectRef.current.focus();
+    } else {
+      dialogRef.current?.focus();
+    }
+  }, [changed]);
 
   // Trap focus within the dialog and handle Escape key
   const handleKeyDown = useCallback(
@@ -121,7 +129,11 @@ export default function HostKeyDialog({
         <div className="dialog-actions">
           {changed ? (
             <>
-              <button className="btn-secondary" autoFocus onClick={onReject}>
+              <button
+                ref={rejectRef}
+                className="btn-secondary"
+                onClick={onReject}
+              >
                 Reject (recommended)
               </button>
               <button className="btn-danger" onClick={onAccept}>

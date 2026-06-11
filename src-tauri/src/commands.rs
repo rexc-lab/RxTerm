@@ -200,10 +200,11 @@ pub struct HostKeyInfo {
 
 /// Initiate an SSH connection to the server specified by `session_id`.
 ///
-/// If the host key is unknown, returns an error whose message starts with
-/// `HOST_KEY_UNKNOWN:` followed by a JSON-encoded `HostKeyInfo`. The
-/// frontend should prompt the user and call `ssh_accept_host_key` before
-/// retrying.
+/// If the host key is not yet trusted, returns `Ok` with `status`
+/// `"host_key_unknown"` (first contact) or `"host_key_changed"` (a
+/// different key than previously accepted — potential MITM) and the
+/// `host_key` field populated. The frontend prompts the user and calls
+/// `ssh_accept_host_key` before retrying.
 #[tauri::command]
 pub async fn ssh_connect(
     app: AppHandle,
