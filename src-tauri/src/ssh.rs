@@ -35,6 +35,10 @@ pub struct CapturedHostKeyInfo {
     pub fingerprint: String,
     pub key_data: String,
     pub algorithm: String,
+    /// True when a different key was previously accepted for this host —
+    /// the potential-MITM case, which the UI must present distinctly from
+    /// a first-time unknown key.
+    pub changed: bool,
 }
 
 /// A live SSH connection with its IO handles.
@@ -355,13 +359,29 @@ impl client::Handler for ClientHandler {
             .check(&self.host, self.port, server_public_key)
         {
             HostKeyStatus::Known => Ok(true),
-            HostKeyStatus::Unknown { .. } | HostKeyStatus::Changed { .. } => {
+            HostKeyStatus::Unknown { .. } => {
                 // SEC-3: store key info for the caller before rejecting
                 let mut captured = self.captured_key.lock().await;
                 *captured = Some(CapturedHostKeyInfo {
                     fingerprint,
                     key_data,
                     algorithm,
+                    changed: false,
+                });
+                Ok(false)
+            }
+            HostKeyStatus::Changed { .. } => {
+                log::warn!(
+                    "[SSH] host key for {}:{} CHANGED from the stored entry (potential MITM)",
+                    self.host,
+                    self.port
+                );
+                let mut captured = self.captured_key.lock().await;
+                *captured = Some(CapturedHostKeyInfo {
+                    fingerprint,
+                    key_data,
+                    algorithm,
+                    changed: true,
                 });
                 Ok(false)
             }

@@ -70,8 +70,14 @@ impl KnownHostsStore {
 
         let _guard = self.file_lock.lock().unwrap_or_else(|e| e.into_inner());
         let entries = self.load_entries();
+
+        let mut host_seen = false;
         for entry in &entries {
-            if entry.host == entry_host && entry.algorithm == algo {
+            if entry.host != entry_host {
+                continue;
+            }
+            host_seen = true;
+            if entry.algorithm == algo {
                 if entry.key_data == encoded {
                     return HostKeyStatus::Known;
                 }
@@ -80,6 +86,19 @@ impl KnownHostsStore {
                     key_data: encoded,
                 };
             }
+        }
+
+        // The host is already trusted under a different key algorithm but is
+        // now presenting a key type we have never accepted. A legitimate
+        // server keeps offering a key we know, so treat this as the
+        // potential-MITM case — otherwise an attacker could downgrade to an
+        // absent algorithm to dodge the changed-key warning — rather than a
+        // benign first contact.
+        if host_seen {
+            return HostKeyStatus::Changed {
+                fingerprint,
+                key_data: encoded,
+            };
         }
 
         HostKeyStatus::Unknown {
@@ -215,6 +234,85 @@ mod tests {
         let path = dir.path().join("known_hosts");
         let store = KnownHostsStore::with_path(path);
         (store, dir)
+    }
+
+    /// Helper: generate a fresh ed25519 public key for check() tests.
+    fn generate_key() -> PublicKey {
+        russh_keys::key::KeyPair::generate_ed25519()
+            .clone_public_key()
+            .expect("clone public key")
+    }
+
+    // ── check(): Known / Unknown / Changed status ─────────────────
+
+    #[test]
+    fn check_returns_unknown_for_new_host() {
+        let (store, _dir) = temp_store();
+        let key = generate_key();
+        assert!(matches!(
+            store.check("example.com", 22, &key),
+            HostKeyStatus::Unknown { .. }
+        ));
+    }
+
+    #[test]
+    fn check_returns_known_for_accepted_key() {
+        let (store, _dir) = temp_store();
+        let key = generate_key();
+        store
+            .accept(
+                "example.com",
+                22,
+                &key.public_key_base64(),
+                &key_algorithm_name(&key),
+            )
+            .expect("accept");
+        assert!(matches!(
+            store.check("example.com", 22, &key),
+            HostKeyStatus::Known
+        ));
+    }
+
+    #[test]
+    fn check_returns_changed_for_different_key_same_host() {
+        let (store, _dir) = temp_store();
+        let original = generate_key();
+        store
+            .accept(
+                "example.com",
+                22,
+                &original.public_key_base64(),
+                &key_algorithm_name(&original),
+            )
+            .expect("accept");
+
+        let impostor = generate_key();
+        assert!(matches!(
+            store.check("example.com", 22, &impostor),
+            HostKeyStatus::Changed { .. }
+        ));
+        // A different port is a separate identity — first contact, not MITM.
+        assert!(matches!(
+            store.check("example.com", 2222, &impostor),
+            HostKeyStatus::Unknown { .. }
+        ));
+    }
+
+    #[test]
+    fn check_returns_changed_when_known_host_presents_a_new_key_algorithm() {
+        let (store, _dir) = temp_store();
+        // Trust the host under a non-ed25519 algorithm.
+        store
+            .accept("example.com", 22, "AAAAB3NzaC1yc2EAAAA", "ssh-rsa")
+            .expect("accept");
+
+        // The host now presents an ed25519 key we have never accepted.
+        // A downgrade to an absent algorithm must NOT dodge the warning.
+        let ed25519 = generate_key();
+        assert!(matches!(
+            store.check("example.com", 22, &ed25519),
+            HostKeyStatus::Changed { .. }
+        ));
     }
 
     // ── SEC-2: Known-hosts injection ─────────────────────────────

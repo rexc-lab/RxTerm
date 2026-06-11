@@ -35,12 +35,14 @@ export async function importSessions(json: string): Promise<SshSession[]> {
 
 /** ROB-6: typed result from ssh_connect — no more parsing error strings. */
 export interface SshConnectResponse {
-  status: "connected" | "host_key_unknown";
+  /** "host_key_changed" means the key DIFFERS from the stored entry (potential MITM). */
+  status: "connected" | "host_key_unknown" | "host_key_changed";
   connection_id?: string;
   host_key?: {
     fingerprint: string;
     key_data: string;
     algorithm: string;
+    changed: boolean;
   };
 }
 
