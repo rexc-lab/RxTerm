@@ -72,7 +72,7 @@ Planned (not yet implemented):
 
 ## Contributing
 
-Contributions are welcome. Please open an issue to discuss proposed changes before submitting a pull request. Every PR is validated by CI (`tsc`, `cargo clippy -D warnings`, and the test suite on Windows, Linux, and macOS).
+Contributions are welcome. Please open an issue to discuss proposed changes before submitting a pull request. Every PR is validated by CI: `tsc`, the Rust test suite on Windows, Linux, and macOS, and `cargo clippy -D warnings` on Linux.
 
 ---
 

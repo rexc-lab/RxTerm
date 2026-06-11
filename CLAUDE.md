@@ -106,7 +106,7 @@ The CI release workflow patches all three automatically from the git tag at buil
 
 ## CI/CD
 
-Every pull request and push to main runs `.github/workflows/ci.yml`: frontend `tsc && vite build`, plus `cargo clippy --all-targets --locked -- -D warnings` and `cargo test --locked` on ubuntu, windows, and macos.
+Every pull request and push to main runs `.github/workflows/ci.yml`: frontend `tsc && vite build`, plus `cargo test --locked` on ubuntu, windows, and macos, with `cargo clippy --all-targets --locked -- -D warnings` gating on ubuntu (the codebase has no cfg-gated platform code, so lints are identical everywhere).
 
 The release workflow (`.github/workflows/release.yml`) triggers on `v*` tags only and builds for Windows, macOS (universal binary), and Linux using `tauri-apps/tauri-action`. It also produces a Windows portable zip and SHA-256 checksums. Code signing is scaffolded but currently disabled, and the auto-updater config in `tauri.conf.json` is inert until an update-signing keypair is provisioned.
 
